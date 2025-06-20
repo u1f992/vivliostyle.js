@@ -1347,7 +1347,6 @@ export class PageRuleMasterInstance extends PageMaster.PageMasterInstance<PageRu
           sizes[MarginBoxPositionAlongVariableDimension.END] =
             intrinsicSizes.ySize;
         }
-        return sizes;
       }
 
       const startEndSizes = this.distributeAutoMarginBoxSizes(
@@ -1388,7 +1387,6 @@ export class PageRuleMasterInstance extends PageMaster.PageMasterInstance<PageRu
         if (endBoxParam && endBoxParam.hasAutoSize()) {
           sizes[MarginBoxPositionAlongVariableDimension.END] = startEndAutoSize;
         }
-        return sizes;
       }
 
       const centerSizes = this.distributeAutoMarginBoxSizes(
@@ -1494,7 +1492,6 @@ export class PageRuleMasterInstance extends PageMaster.PageMasterInstance<PageRu
       xSize: null,
       ySize: null,
     };
-
     if (x && y) {
       if (x.hasAutoSize() && y.hasAutoSize()) {
         const xOuterMaxContentSize = x.getOuterMaxContentSize();
