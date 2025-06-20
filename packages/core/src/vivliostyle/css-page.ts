@@ -1333,6 +1333,23 @@ export class PageRuleMasterInstance extends PageMaster.PageMasterInstance<PageRu
       [key in MarginBoxPositionAlongVariableDimension]?: number;
     } = {};
     if (!centerBoxParam) {
+      const intrinsicSizes = this.distributeIntrinsicSizeKeywordMarginBoxSizes(
+        startBoxParam,
+        endBoxParam,
+        availableSize,
+      );
+      if (intrinsicSizes) {
+        if (intrinsicSizes.xSize) {
+          sizes[MarginBoxPositionAlongVariableDimension.START] =
+            intrinsicSizes.xSize;
+        }
+        if (intrinsicSizes.ySize) {
+          sizes[MarginBoxPositionAlongVariableDimension.END] =
+            intrinsicSizes.ySize;
+        }
+        return sizes;
+      }
+
       const startEndSizes = this.distributeAutoMarginBoxSizes(
         startBoxParam,
         endBoxParam,
@@ -1351,6 +1368,29 @@ export class PageRuleMasterInstance extends PageMaster.PageMasterInstance<PageRu
       const startEndBoxParam = params.length
         ? new MultipleBoxesMarginBoxSizingParam(params)
         : null;
+      const intrinsicSizes = this.distributeIntrinsicSizeKeywordMarginBoxSizes(
+        centerBoxParam,
+        startEndBoxParam,
+        availableSize,
+      );
+      if (intrinsicSizes) {
+        if (intrinsicSizes.xSize) {
+          sizes[MarginBoxPositionAlongVariableDimension.CENTER] =
+            intrinsicSizes.xSize;
+        }
+        const centerSize =
+          intrinsicSizes.xSize || centerBoxParam.getOuterSize();
+        const startEndAutoSize = (availableSize - centerSize) / 2;
+        if (startBoxParam && startBoxParam.hasAutoSize()) {
+          sizes[MarginBoxPositionAlongVariableDimension.START] =
+            startEndAutoSize;
+        }
+        if (endBoxParam && endBoxParam.hasAutoSize()) {
+          sizes[MarginBoxPositionAlongVariableDimension.END] = startEndAutoSize;
+        }
+        return sizes;
+      }
+
       const centerSizes = this.distributeAutoMarginBoxSizes(
         centerBoxParam,
         startEndBoxParam,
@@ -1373,6 +1413,68 @@ export class PageRuleMasterInstance extends PageMaster.PageMasterInstance<PageRu
   }
 
   /**
+   * Distribute sizes for margin boxes that use intrinsic size keywords (fit-content, min-content, max-content)
+   * @param x Parameter for the first margin box. null if the box is not generated.
+   * @param y Parameter for the second margin box. null if the box is not generated.
+   * @param availableSize Available size for the margin boxes.
+   * @returns Determined sizes for the two boxes. Each value is present only when the size of the corresponding box uses intrinsic size keywords.
+   */
+  private distributeIntrinsicSizeKeywordMarginBoxSizes(
+    x: MarginBoxSizingParam,
+    y: MarginBoxSizingParam,
+    availableSize: number,
+  ): { xSize: number | null; ySize: number | null } | null {
+    const xHasIntrinsicKeyword =
+      x && (x as SingleBoxMarginBoxSizingParam).hasIntrinsicSizeKeyword();
+    const yHasIntrinsicKeyword =
+      y && (y as SingleBoxMarginBoxSizingParam).hasIntrinsicSizeKeyword();
+
+    // If neither box uses intrinsic size keywords, return null
+    if (!xHasIntrinsicKeyword && !yHasIntrinsicKeyword) {
+      return null;
+    }
+
+    const result: { xSize: number | null; ySize: number | null } = {
+      xSize: null,
+      ySize: null,
+    };
+
+    if (xHasIntrinsicKeyword && !y) {
+      result.xSize = x.getOuterSize();
+      return result;
+    }
+    if (yHasIntrinsicKeyword && !x) {
+      result.ySize = y.getOuterSize();
+      return result;
+    }
+
+    if (x && y) {
+      if (xHasIntrinsicKeyword && yHasIntrinsicKeyword) {
+        // Both have intrinsic size keywords, use their calculated sizes
+        result.xSize = x.getOuterSize();
+        result.ySize = y.getOuterSize();
+        return result;
+      } else if (xHasIntrinsicKeyword) {
+        // x has intrinsic size keyword, y is auto or fixed
+        result.xSize = x.getOuterSize();
+        if (y.hasAutoSize()) {
+          result.ySize = Math.max(availableSize - result.xSize, 0);
+        }
+        return result;
+      } else if (yHasIntrinsicKeyword) {
+        // y has intrinsic size keyword, x is auto or fixed
+        result.ySize = y.getOuterSize();
+        if (x.hasAutoSize()) {
+          result.xSize = Math.max(availableSize - result.ySize, 0);
+        }
+        return result;
+      }
+    }
+
+    return result;
+  }
+
+  /**
    * Distribute auto margin sizes among two margin boxes using an algorithm
    * specified in CSS Paged Media spec.
    * @param x Parameter for the first margin box. null if the box is not
@@ -1392,6 +1494,7 @@ export class PageRuleMasterInstance extends PageMaster.PageMasterInstance<PageRu
       xSize: null,
       ySize: null,
     };
+
     if (x && y) {
       if (x.hasAutoSize() && y.hasAutoSize()) {
         const xOuterMaxContentSize = x.getOuterMaxContentSize();
@@ -1477,6 +1580,7 @@ interface MarginBoxSizingParam {
  */
 class SingleBoxMarginBoxSizingParam implements MarginBoxSizingParam {
   private hasAutoSize_: boolean;
+  private isIntrinsicSizeKeyword_: boolean;
   private maxKey: Sizing.Size;
   private minKey: Sizing.Size;
   private size: { [key in Sizing.Size]: number } | null = null;
@@ -1489,6 +1593,11 @@ class SingleBoxMarginBoxSizingParam implements MarginBoxSizingParam {
     private readonly clientLayout: Vtree.ClientLayout,
   ) {
     const val = style[isHorizontal ? "width" : "height"];
+    this.isIntrinsicSizeKeyword_ =
+      val === Css.ident.fit_content ||
+      val === Css.ident.min_content ||
+      val === Css.ident.max_content;
+
     this.hasAutoSize_ =
       !val || val === Css.ident.auto || Css.isDefaultingValue(val);
 
@@ -1526,6 +1635,14 @@ class SingleBoxMarginBoxSizingParam implements MarginBoxSizingParam {
   /** @override */
   hasAutoSize(): boolean {
     return this.hasAutoSize_;
+  }
+
+  /**
+   * Returns true if the size is specified with intrinsic size keywords:
+   * fit-content, min-content, or max-content
+   */
+  hasIntrinsicSizeKeyword(): boolean {
+    return this.isIntrinsicSizeKeyword_;
   }
 
   private getSize(): { [key in Sizing.Size]: number } {
