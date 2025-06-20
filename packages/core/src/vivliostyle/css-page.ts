@@ -1422,10 +1422,8 @@ export class PageRuleMasterInstance extends PageMaster.PageMasterInstance<PageRu
     y: MarginBoxSizingParam,
     availableSize: number,
   ): { xSize: number | null; ySize: number | null } | null {
-    const xHasIntrinsicKeyword =
-      x && (x as SingleBoxMarginBoxSizingParam).hasIntrinsicSizeKeyword();
-    const yHasIntrinsicKeyword =
-      y && (y as SingleBoxMarginBoxSizingParam).hasIntrinsicSizeKeyword();
+    const xHasIntrinsicKeyword = x && x.hasIntrinsicSizeKeyword();
+    const yHasIntrinsicKeyword = y && y.hasIntrinsicSizeKeyword();
 
     // If neither box uses intrinsic size keywords, return null
     if (!xHasIntrinsicKeyword && !yHasIntrinsicKeyword) {
@@ -1562,6 +1560,8 @@ export class PageRuleMasterInstance extends PageMaster.PageMasterInstance<PageRu
  */
 interface MarginBoxSizingParam {
   hasAutoSize(): boolean;
+
+  hasIntrinsicSizeKeyword(): boolean;
 
   getOuterMaxContentSize(): number;
 
@@ -1734,6 +1734,11 @@ class MultipleBoxesMarginBoxSizingParam implements MarginBoxSizingParam {
   /** @override */
   hasAutoSize(): boolean {
     return this.params.some((p) => p.hasAutoSize());
+  }
+
+  /** @override */
+  hasIntrinsicSizeKeyword(): boolean {
+    return this.params.some((p) => p.hasIntrinsicSizeKeyword());
   }
 
   /** @override */
