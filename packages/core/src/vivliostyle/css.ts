@@ -643,6 +643,7 @@ export const ident: { [key: string]: Ident } = {
   discard: getName("discard"),
   exclusive: getName("exclusive"),
   _false: getName("false"),
+  fit_content: getName("fit-content"),
   fixed: getName("fixed"),
   flex: getName("flex"),
   flow_root: getName("flow-root"),

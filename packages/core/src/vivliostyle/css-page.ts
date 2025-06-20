@@ -1477,6 +1477,8 @@ interface MarginBoxSizingParam {
  */
 class SingleBoxMarginBoxSizingParam implements MarginBoxSizingParam {
   private hasAutoSize_: boolean;
+  private maxKey: Sizing.Size;
+  private minKey: Sizing.Size;
   private size: { [key in Sizing.Size]: number } | null = null;
 
   constructor(
@@ -1489,6 +1491,36 @@ class SingleBoxMarginBoxSizingParam implements MarginBoxSizingParam {
     const val = style[isHorizontal ? "width" : "height"];
     this.hasAutoSize_ =
       !val || val === Css.ident.auto || Css.isDefaultingValue(val);
+
+    if (this.isHorizontal) {
+      if (val === Css.ident.fit_content) {
+        this.maxKey = Sizing.Size.FIT_CONTENT_WIDTH;
+        this.minKey = Sizing.Size.FIT_CONTENT_WIDTH;
+      } else if (val === Css.ident.min_content) {
+        this.maxKey = Sizing.Size.MIN_CONTENT_WIDTH;
+        this.minKey = Sizing.Size.MIN_CONTENT_WIDTH;
+      } else if (val === Css.ident.max_content) {
+        this.maxKey = Sizing.Size.MAX_CONTENT_WIDTH;
+        this.minKey = Sizing.Size.MAX_CONTENT_WIDTH;
+      } else {
+        this.maxKey = Sizing.Size.MAX_CONTENT_WIDTH;
+        this.minKey = Sizing.Size.MIN_CONTENT_WIDTH;
+      }
+    } else {
+      if (val === Css.ident.fit_content) {
+        this.maxKey = Sizing.Size.FIT_CONTENT_HEIGHT;
+        this.minKey = Sizing.Size.FIT_CONTENT_HEIGHT;
+      } else if (val === Css.ident.min_content) {
+        this.maxKey = Sizing.Size.MIN_CONTENT_HEIGHT;
+        this.minKey = Sizing.Size.MIN_CONTENT_HEIGHT;
+      } else if (val === Css.ident.max_content) {
+        this.maxKey = Sizing.Size.MAX_CONTENT_HEIGHT;
+        this.minKey = Sizing.Size.MAX_CONTENT_HEIGHT;
+      } else {
+        this.maxKey = Sizing.Size.MAX_CONTENT_HEIGHT;
+        this.minKey = Sizing.Size.MIN_CONTENT_HEIGHT;
+      }
+    }
   }
 
   /** @override */
@@ -1498,9 +1530,11 @@ class SingleBoxMarginBoxSizingParam implements MarginBoxSizingParam {
 
   private getSize(): { [key in Sizing.Size]: number } {
     if (!this.size) {
-      const sizes = this.isHorizontal
-        ? [Sizing.Size.MAX_CONTENT_WIDTH, Sizing.Size.MIN_CONTENT_WIDTH]
-        : [Sizing.Size.MAX_CONTENT_HEIGHT, Sizing.Size.MIN_CONTENT_HEIGHT];
+      const sizes =
+        this.maxKey === this.minKey
+          ? [this.maxKey]
+          : [this.maxKey, this.minKey];
+
       this.size = Sizing.getSize(
         this.clientLayout,
         this.container.element,
@@ -1516,13 +1550,13 @@ class SingleBoxMarginBoxSizingParam implements MarginBoxSizingParam {
     if (this.isHorizontal) {
       return (
         this.container.getInsetLeft() +
-        size[Sizing.Size.MAX_CONTENT_WIDTH] +
+        size[this.maxKey] +
         this.container.getInsetRight()
       );
     } else {
       return (
         this.container.getInsetTop() +
-        size[Sizing.Size.MAX_CONTENT_HEIGHT] +
+        size[this.maxKey] +
         this.container.getInsetBottom()
       );
     }
@@ -1534,13 +1568,13 @@ class SingleBoxMarginBoxSizingParam implements MarginBoxSizingParam {
     if (this.isHorizontal) {
       return (
         this.container.getInsetLeft() +
-        size[Sizing.Size.MIN_CONTENT_WIDTH] +
+        size[this.minKey] +
         this.container.getInsetRight()
       );
     } else {
       return (
         this.container.getInsetTop() +
-        size[Sizing.Size.MIN_CONTENT_HEIGHT] +
+        size[this.minKey] +
         this.container.getInsetBottom()
       );
     }
@@ -1548,6 +1582,16 @@ class SingleBoxMarginBoxSizingParam implements MarginBoxSizingParam {
 
   /** @override */
   getOuterSize(): number {
+    if (this.maxKey === this.minKey) {
+      const size = this.getSize();
+      return this.isHorizontal
+        ? this.container.getInsetLeft() +
+            size[this.maxKey] +
+            this.container.getInsetRight()
+        : this.container.getInsetTop() +
+            size[this.maxKey] +
+            this.container.getInsetBottom();
+    }
     if (this.isHorizontal) {
       return (
         this.container.getInsetLeft() +
