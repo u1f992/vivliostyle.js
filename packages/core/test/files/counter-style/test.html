@@ -1,0 +1,24 @@
+<!doctype html>
+<html>
+  <head>
+    <meta charset="UTF-8" />
+    <title>@counter-style rule</title>
+    <style>
+      @counter-style thumbs {
+        system: cyclic;
+        symbols: "\1F44D";
+      }
+      ol {
+        list-style-type: thumbs;
+      }
+    </style>
+  </head>
+  <body>
+    <h1>@counter-style rule</h1>
+    <ol>
+      <li>One</li>
+      <li>Two</li>
+      <li>Three</li>
+    </ol>
+  </body>
+</html>

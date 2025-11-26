@@ -90,6 +90,39 @@ export type FontFace = {
   condition: Exprs.Val;
 };
 
+export type CounterStyle = {
+  properties: CssCascade.ElementStyle;
+};
+
+class CounterStyleParserHandler extends CssCascade.PropSetParserHandler {
+  constructor(
+    scope: Exprs.LexicalScope,
+    owner: CssParser.DispatchParserHandler,
+    elementStyle: CssCascade.ElementStyle,
+    validatorSet: CssValidator.ValidatorSet,
+    private readonly counterStyleName: string,
+  ) {
+    super(scope, owner, null, elementStyle, validatorSet, "counter-style");
+  }
+
+  override endRule(): void {
+    super.endRule();
+    // Format descriptors for logging
+    const descriptors: string[] = [];
+    for (const [name, val] of Object.entries(this.elementStyle)) {
+      const cascadeValue = val as CssCascade.CascadeValue;
+      if (cascadeValue && cascadeValue.value) {
+        descriptors.push(`${name}: ${cascadeValue.value.toString()}`);
+      }
+    }
+    const descriptorStr =
+      descriptors.length > 0 ? `{ ${descriptors.join("; ")} }` : "{}";
+    Logging.logger.warn(
+      `not yet implemented: @counter-style ${this.counterStyleName} ${descriptorStr}`,
+    );
+  }
+}
+
 export class Style {
   fontDeobfuscator:
     | ((p1: string) => ((p1: Blob) => Task.Result<Blob>) | null)
@@ -2063,6 +2096,46 @@ export class BaseParserHandler extends CssCascade.CascadeParserHandler {
     );
   }
 
+  override startCounterStyleRule(name: string): void {
+    // https://drafts.csswg.org/css-counter-styles-3/#non-overridable-counter-style-names
+    // "none" is case-insensitive
+    // Non-overridable names are case-sensitive
+    const nonOverridableNames = [
+      "decimal",
+      "disc",
+      "square",
+      "circle",
+      "disclosure-open",
+      "disclosure-closed",
+    ];
+    if (name.toLowerCase() === "none" || nonOverridableNames.includes(name)) {
+      Logging.logger.warn(
+        `E_CSS_COUNTER_STYLE_NON_OVERRIDABLE: @counter-style ${name}`,
+      );
+      this.masterHandler.pushHandler(
+        new CssParser.SkippingParserHandler(
+          this.scope,
+          this.masterHandler,
+          false,
+        ),
+      );
+      return;
+    }
+
+    const properties = {} as CssCascade.ElementStyle;
+    const counterStyle: CounterStyle = { properties };
+    this.masterHandler.counterStyles[name] = counterStyle;
+    this.masterHandler.pushHandler(
+      new CounterStyleParserHandler(
+        this.scope,
+        this.owner,
+        properties,
+        this.masterHandler.validatorSet,
+        name,
+      ),
+    );
+  }
+
   override startFlowRule(flowName: string): void {
     let style = this.masterHandler.flowProps[flowName];
     if (!style) {
@@ -2158,6 +2231,7 @@ export class StyleParserHandler extends CssParser.DispatchParserHandler {
   cascadeParserHandler: BaseParserHandler;
   regionCount: number = 0;
   fontFaces = [] as FontFace[];
+  counterStyles = {} as { [name: string]: CounterStyle };
   footnoteProps = {} as CssCascade.ElementStyle;
   flowProps = {} as { [key: string]: CssCascade.ElementStyle };
   viewportProps = [] as CssCascade.ElementStyle[];
@@ -2170,6 +2244,68 @@ export class StyleParserHandler extends CssParser.DispatchParserHandler {
     this.rootBox = new PageMaster.RootPageBox(this.rootScope);
     this.cascadeParserHandler = new BaseParserHandler(this, null, null, null);
     this.slave = this.cascadeParserHandler;
+    this.initBuiltInCounterStyles();
+  }
+
+  private initBuiltInCounterStyles(): void {
+    // https://drafts.csswg.org/css-counter-styles-3/#simple-numeric
+    this.counterStyles["decimal"] = {
+      properties: {
+        system: new CssCascade.CascadeValue(Css.getName("numeric"), 0),
+        symbols: new CssCascade.CascadeValue(
+          new Css.SpaceList([
+            new Css.Str("0"),
+            new Css.Str("1"),
+            new Css.Str("2"),
+            new Css.Str("3"),
+            new Css.Str("4"),
+            new Css.Str("5"),
+            new Css.Str("6"),
+            new Css.Str("7"),
+            new Css.Str("8"),
+            new Css.Str("9"),
+          ]),
+          0,
+        ),
+      },
+    };
+    // https://drafts.csswg.org/css-counter-styles-3/#simple-symbolic
+    this.counterStyles["disc"] = {
+      properties: {
+        system: new CssCascade.CascadeValue(Css.getName("cyclic"), 0),
+        symbols: new CssCascade.CascadeValue(new Css.Str("\u2022"), 0),
+        suffix: new CssCascade.CascadeValue(new Css.Str(" "), 0),
+      },
+    };
+    this.counterStyles["circle"] = {
+      properties: {
+        system: new CssCascade.CascadeValue(Css.getName("cyclic"), 0),
+        symbols: new CssCascade.CascadeValue(new Css.Str("\u25E6"), 0),
+        suffix: new CssCascade.CascadeValue(new Css.Str(" "), 0),
+      },
+    };
+    this.counterStyles["square"] = {
+      properties: {
+        system: new CssCascade.CascadeValue(Css.getName("cyclic"), 0),
+        symbols: new CssCascade.CascadeValue(new Css.Str("\u25FE"), 0),
+        suffix: new CssCascade.CascadeValue(new Css.Str(" "), 0),
+      },
+    };
+    this.counterStyles["disclosure-open"] = {
+      properties: {
+        system: new CssCascade.CascadeValue(Css.getName("cyclic"), 0),
+        symbols: new CssCascade.CascadeValue(new Css.Str("\u25BE"), 0),
+        suffix: new CssCascade.CascadeValue(new Css.Str(" "), 0),
+      },
+    };
+    // TODO: disclosure-closed should respond to writing mode (U+25B8 for LTR, U+25C2 for RTL)
+    this.counterStyles["disclosure-closed"] = {
+      properties: {
+        system: new CssCascade.CascadeValue(Css.getName("cyclic"), 0),
+        symbols: new CssCascade.CascadeValue(new Css.Str("\u25B8"), 0),
+        suffix: new CssCascade.CascadeValue(new Css.Str(" "), 0),
+      },
+    };
   }
 }
 

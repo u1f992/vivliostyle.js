@@ -2076,15 +2076,25 @@ export class ValidatorSet {
     important: boolean,
     receiver: PropertyReceiver,
   ): void {
+    const ruleType = (receiver as PropertyReceiver & { ruleType?: string })
+      .ruleType;
     if (
       Css.isCustomPropName(name) ||
       // Check if it is a `@font-face` descriptor (Issue #1307)
-      (receiver as PropertyReceiver & { ruleType?: string }).ruleType ===
-        "font-face" ||
+      ruleType === "font-face" ||
       // Check if the property value containing `var(…)`
       containsVar(value)
     ) {
       receiver.simpleProperty(name, value, important);
+      return;
+    }
+    // Validate @counter-style descriptor
+    if (ruleType === "counter-style") {
+      if (validateCounterStyleDescriptor(name, value)) {
+        receiver.simpleProperty(name, value, important);
+      } else {
+        receiver.invalidPropertyValue(name, value);
+      }
       return;
     }
     let prefix = "";
@@ -2159,4 +2169,187 @@ export function containsVar(val: Css.Val): boolean {
   const varCheckVisitor = new VarCheckVisitor();
   val.visit(varCheckVisitor);
   return varCheckVisitor.varFound;
+}
+
+function isValidCounterStyleName(val: Css.Val): boolean {
+  return val instanceof Css.Ident && val.name.toLowerCase() !== "none";
+}
+
+function isValidSymbol(val: Css.Val): boolean {
+  // TODO: <image> support?
+  return val instanceof Css.Str || val instanceof Css.Ident;
+}
+
+function isValidRangeBound(val: Css.Val): boolean {
+  return (
+    val instanceof Css.Int ||
+    (val instanceof Css.Ident && val.name === "infinite")
+  );
+}
+
+function isValidRangePair(lower: Css.Val, upper: Css.Val): boolean {
+  if (!isValidRangeBound(lower) || !isValidRangeBound(upper)) {
+    return false;
+  }
+  // Always valid if either is infinite
+  // (infinite as first = -Inf, infinite as second = Inf)
+  if (lower instanceof Css.Ident || upper instanceof Css.Ident) {
+    return true;
+  }
+  if (lower instanceof Css.Int && upper instanceof Css.Int) {
+    return lower.num <= upper.num;
+  }
+  return false;
+}
+
+function isValidAdditiveTuple(val: Css.Val): boolean {
+  if (val instanceof Css.SpaceList && val.values.length === 2) {
+    const first = val.values[0];
+    const second = val.values[1];
+    // <integer> <symbol>
+    if (first instanceof Css.Int && first.num >= 0 && isValidSymbol(second)) {
+      return true;
+    }
+    // <symbol> <integer>
+    if (isValidSymbol(first) && second instanceof Css.Int && second.num >= 0) {
+      return true;
+    }
+  }
+  return false;
+}
+
+/**
+ * @see https://drafts.csswg.org/css-counter-styles/
+ */
+export function validateCounterStyleDescriptor(
+  name: string,
+  value: Css.Val,
+): boolean {
+  switch (name) {
+    case "system": {
+      if (value instanceof Css.Ident) {
+        const ident = value.name;
+        return (
+          ident === "cyclic" ||
+          ident === "fixed" || // without integer
+          ident === "symbolic" ||
+          ident === "alphabetic" ||
+          ident === "numeric" ||
+          ident === "additive"
+        );
+      }
+      if (value instanceof Css.SpaceList && value.values.length === 2) {
+        const first = value.values[0];
+        const second = value.values[1];
+        if (first instanceof Css.Ident) {
+          const ident = first.name;
+          // fixed <integer>
+          if (ident === "fixed" && second instanceof Css.Int) {
+            return true;
+          }
+          // extends <counter-style-name>
+          if (ident === "extends" && isValidCounterStyleName(second)) {
+            return true;
+          }
+        }
+      }
+      return false;
+    }
+    case "negative": {
+      if (isValidSymbol(value)) {
+        return true;
+      }
+      // <symbol> <symbol>
+      if (value instanceof Css.SpaceList && value.values.length === 2) {
+        return isValidSymbol(value.values[0]) && isValidSymbol(value.values[1]);
+      }
+      return false;
+    }
+    case "prefix":
+    case "suffix":
+      return isValidSymbol(value);
+    case "range": {
+      if (value instanceof Css.Ident && value.name === "auto") {
+        return true;
+      }
+      // <integer>|infinite <integer>|infinite
+      if (value instanceof Css.SpaceList && value.values.length === 2) {
+        return isValidRangePair(value.values[0], value.values[1]);
+      }
+      // comma-separated tuples
+      if (value instanceof Css.CommaList) {
+        for (const range of value.values) {
+          if (range instanceof Css.SpaceList && range.values.length === 2) {
+            if (!isValidRangePair(range.values[0], range.values[1])) {
+              return false;
+            }
+          } else {
+            return false;
+          }
+        }
+        return true;
+      }
+      return false;
+    }
+    case "pad": {
+      if (value instanceof Css.SpaceList && value.values.length === 2) {
+        const first = value.values[0];
+        const second = value.values[1];
+        // <integer> <symbol>
+        if (
+          first instanceof Css.Int &&
+          first.num >= 0 &&
+          isValidSymbol(second)
+        ) {
+          return true;
+        }
+        // <symbol> <integer>
+        if (
+          isValidSymbol(first) &&
+          second instanceof Css.Int &&
+          second.num >= 0
+        ) {
+          return true;
+        }
+      }
+      return false;
+    }
+    case "fallback":
+      return isValidCounterStyleName(value);
+    case "symbols": {
+      if (isValidSymbol(value)) {
+        return true;
+      }
+      if (value instanceof Css.SpaceList && value.values.length >= 1) {
+        return value.values.every((v) => isValidSymbol(v));
+      }
+      return false;
+    }
+    case "additive-symbols": {
+      if (isValidAdditiveTuple(value)) {
+        return true;
+      }
+      if (value instanceof Css.CommaList) {
+        return value.values.every((v) => isValidAdditiveTuple(v));
+      }
+      return false;
+    }
+    case "speak-as": {
+      if (value instanceof Css.Ident) {
+        const ident = value.name;
+        return (
+          ident === "auto" ||
+          ident === "bullets" ||
+          ident === "numbers" ||
+          ident === "words" ||
+          ident === "spell-out" ||
+          isValidCounterStyleName(value)
+        );
+      }
+      return false;
+    }
+    default:
+      // accept without validation
+      return true;
+  }
 }

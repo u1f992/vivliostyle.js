@@ -741,4 +741,13 @@ module.exports = [
       },
     ],
   },
+  {
+    category: "Counter Styles",
+    files: [
+      {
+        file: "counter-style/test.html",
+        title: "@counter-style rule",
+      },
+    ],
+  },
 ];
