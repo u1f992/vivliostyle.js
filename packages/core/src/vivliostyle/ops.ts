@@ -27,6 +27,7 @@ import * as Break from "./break";
 import * as Columns from "./columns";
 import * as Constants from "./constants";
 import * as Counters from "./counters";
+import * as CounterStyle from "./counter-style";
 import * as Css from "./css";
 import * as CssCascade from "./css-cascade";
 import * as CssParser from "./css-parser";
@@ -90,10 +91,6 @@ export type FontFace = {
   condition: Exprs.Val;
 };
 
-export type CounterStyle = {
-  properties: CssCascade.ElementStyle;
-};
-
 class CounterStyleParserHandler extends CssCascade.PropSetParserHandler {
   constructor(
     scope: Exprs.LexicalScope,
@@ -101,6 +98,7 @@ class CounterStyleParserHandler extends CssCascade.PropSetParserHandler {
     elementStyle: CssCascade.ElementStyle,
     validatorSet: CssValidator.ValidatorSet,
     private readonly counterStyleName: string,
+    private readonly counterStyles: CounterStyle.CounterStyleStore,
   ) {
     super(scope, owner, null, elementStyle, validatorSet, "counter-style");
   }
@@ -120,6 +118,8 @@ class CounterStyleParserHandler extends CssCascade.PropSetParserHandler {
     Logging.logger.warn(
       `not yet implemented: @counter-style ${this.counterStyleName} ${descriptorStr}`,
     );
+    // Register the counter style after all descriptors have been parsed
+    this.counterStyles.define(this.counterStyleName, this.elementStyle);
   }
 }
 
@@ -2123,8 +2123,6 @@ export class BaseParserHandler extends CssCascade.CascadeParserHandler {
     }
 
     const properties = {} as CssCascade.ElementStyle;
-    const counterStyle: CounterStyle = { properties };
-    this.masterHandler.counterStyles[name] = counterStyle;
     this.masterHandler.pushHandler(
       new CounterStyleParserHandler(
         this.scope,
@@ -2132,6 +2130,7 @@ export class BaseParserHandler extends CssCascade.CascadeParserHandler {
         properties,
         this.masterHandler.validatorSet,
         name,
+        this.masterHandler.counterStyles,
       ),
     );
   }
@@ -2231,7 +2230,7 @@ export class StyleParserHandler extends CssParser.DispatchParserHandler {
   cascadeParserHandler: BaseParserHandler;
   regionCount: number = 0;
   fontFaces = [] as FontFace[];
-  counterStyles = {} as { [name: string]: CounterStyle };
+  counterStyles = new CounterStyle.CounterStyleStore();
   footnoteProps = {} as CssCascade.ElementStyle;
   flowProps = {} as { [key: string]: CssCascade.ElementStyle };
   viewportProps = [] as CssCascade.ElementStyle[];
@@ -2244,68 +2243,6 @@ export class StyleParserHandler extends CssParser.DispatchParserHandler {
     this.rootBox = new PageMaster.RootPageBox(this.rootScope);
     this.cascadeParserHandler = new BaseParserHandler(this, null, null, null);
     this.slave = this.cascadeParserHandler;
-    this.initBuiltInCounterStyles();
-  }
-
-  private initBuiltInCounterStyles(): void {
-    // https://drafts.csswg.org/css-counter-styles-3/#simple-numeric
-    this.counterStyles["decimal"] = {
-      properties: {
-        system: new CssCascade.CascadeValue(Css.getName("numeric"), 0),
-        symbols: new CssCascade.CascadeValue(
-          new Css.SpaceList([
-            new Css.Str("0"),
-            new Css.Str("1"),
-            new Css.Str("2"),
-            new Css.Str("3"),
-            new Css.Str("4"),
-            new Css.Str("5"),
-            new Css.Str("6"),
-            new Css.Str("7"),
-            new Css.Str("8"),
-            new Css.Str("9"),
-          ]),
-          0,
-        ),
-      },
-    };
-    // https://drafts.csswg.org/css-counter-styles-3/#simple-symbolic
-    this.counterStyles["disc"] = {
-      properties: {
-        system: new CssCascade.CascadeValue(Css.getName("cyclic"), 0),
-        symbols: new CssCascade.CascadeValue(new Css.Str("\u2022"), 0),
-        suffix: new CssCascade.CascadeValue(new Css.Str(" "), 0),
-      },
-    };
-    this.counterStyles["circle"] = {
-      properties: {
-        system: new CssCascade.CascadeValue(Css.getName("cyclic"), 0),
-        symbols: new CssCascade.CascadeValue(new Css.Str("\u25E6"), 0),
-        suffix: new CssCascade.CascadeValue(new Css.Str(" "), 0),
-      },
-    };
-    this.counterStyles["square"] = {
-      properties: {
-        system: new CssCascade.CascadeValue(Css.getName("cyclic"), 0),
-        symbols: new CssCascade.CascadeValue(new Css.Str("\u25FE"), 0),
-        suffix: new CssCascade.CascadeValue(new Css.Str(" "), 0),
-      },
-    };
-    this.counterStyles["disclosure-open"] = {
-      properties: {
-        system: new CssCascade.CascadeValue(Css.getName("cyclic"), 0),
-        symbols: new CssCascade.CascadeValue(new Css.Str("\u25BE"), 0),
-        suffix: new CssCascade.CascadeValue(new Css.Str(" "), 0),
-      },
-    };
-    // TODO: disclosure-closed should respond to writing mode (U+25B8 for LTR, U+25C2 for RTL)
-    this.counterStyles["disclosure-closed"] = {
-      properties: {
-        system: new CssCascade.CascadeValue(Css.getName("cyclic"), 0),
-        symbols: new CssCascade.CascadeValue(new Css.Str("\u25B8"), 0),
-        suffix: new CssCascade.CascadeValue(new Css.Str(" "), 0),
-      },
-    };
   }
 }
 

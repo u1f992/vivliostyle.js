@@ -1,3 +1,5 @@
+// @ts-check
+
 /**
  * Copyright 2025 Vivliostyle Foundation
  *
@@ -21,12 +23,17 @@ import * as adapt_cssparse from "../../../src/vivliostyle/css-parser";
 import * as adapt_task from "../../../src/vivliostyle/task";
 
 describe("css-counter-style", function () {
+  /**
+   * @param {() => any} done
+   * @param {string} css
+   * @param {(result: boolean, counterStyles: typeof adapt_ops.StyleParserHandler.prototype.counterStyles) => any} fn
+   */
   function parseStylesheet(done, css, fn) {
     var validatorSet = adapt_cssvalid.baseValidatorSet();
     var handler = new adapt_ops.StyleParserHandler(validatorSet);
     adapt_task.start(function () {
       adapt_cssparse
-        .parseStylesheetFromText(css, handler, null, null, null)
+        .parseStylesheetFromText(css, handler, "", null, null)
         .then(function (result) {
           fn(result, handler.counterStyles);
           done();
@@ -41,10 +48,13 @@ describe("css-counter-style", function () {
         done,
         "@counter-style test { system: cyclic; }",
         function (result, counterStyles) {
-          expect(counterStyles["test"].properties.system).toBeDefined();
-          expect(counterStyles["test"].properties.system.value.name).toBe(
-            "cyclic",
-          );
+          expect(result).toBeTruthy();
+          var style = counterStyles._resolve("test");
+          expect(style).not.toBeNull();
+          if (!style) return;
+          expect(style._properties.system).toBeDefined();
+          // @ts-expect-error ignore
+          expect(style._properties.system.value.name).toBe("cyclic");
         },
       );
     });
@@ -54,9 +64,11 @@ describe("css-counter-style", function () {
         done,
         "@counter-style test { system: numeric; }",
         function (result, counterStyles) {
-          expect(counterStyles["test"].properties.system.value.name).toBe(
-            "numeric",
-          );
+          var style = counterStyles._resolve("test");
+          expect(style).not.toBeNull();
+          if (!style) return;
+          // @ts-expect-error ignore
+          expect(style._properties.system.value.name).toBe("numeric");
         },
       );
     });
@@ -66,9 +78,11 @@ describe("css-counter-style", function () {
         done,
         "@counter-style test { system: alphabetic; }",
         function (result, counterStyles) {
-          expect(counterStyles["test"].properties.system.value.name).toBe(
-            "alphabetic",
-          );
+          var style = counterStyles._resolve("test");
+          expect(style).not.toBeNull();
+          if (!style) return;
+          // @ts-expect-error ignore
+          expect(style._properties.system.value.name).toBe("alphabetic");
         },
       );
     });
@@ -78,9 +92,11 @@ describe("css-counter-style", function () {
         done,
         "@counter-style test { system: symbolic; }",
         function (result, counterStyles) {
-          expect(counterStyles["test"].properties.system.value.name).toBe(
-            "symbolic",
-          );
+          var style = counterStyles._resolve("test");
+          expect(style).not.toBeNull();
+          if (!style) return;
+          // @ts-expect-error ignore
+          expect(style._properties.system.value.name).toBe("symbolic");
         },
       );
     });
@@ -90,9 +106,11 @@ describe("css-counter-style", function () {
         done,
         "@counter-style test { system: additive; }",
         function (result, counterStyles) {
-          expect(counterStyles["test"].properties.system.value.name).toBe(
-            "additive",
-          );
+          var style = counterStyles._resolve("test");
+          expect(style).not.toBeNull();
+          if (!style) return;
+          // @ts-expect-error ignore
+          expect(style._properties.system.value.name).toBe("additive");
         },
       );
     });
@@ -102,9 +120,11 @@ describe("css-counter-style", function () {
         done,
         "@counter-style test { system: fixed; }",
         function (result, counterStyles) {
-          expect(counterStyles["test"].properties.system.value.name).toBe(
-            "fixed",
-          );
+          var style = counterStyles._resolve("test");
+          expect(style).not.toBeNull();
+          if (!style) return;
+          // @ts-expect-error ignore
+          expect(style._properties.system.value.name).toBe("fixed");
         },
       );
     });
@@ -114,7 +134,11 @@ describe("css-counter-style", function () {
         done,
         "@counter-style test { system: fixed 3; }",
         function (result, counterStyles) {
-          var system = counterStyles["test"].properties.system.value;
+          var style = counterStyles._resolve("test");
+          expect(style).not.toBeNull();
+          if (!style) return;
+          // @ts-expect-error ignore
+          var system = style._properties.system.value;
           expect(system.values[0].name).toBe("fixed");
           expect(system.values[1].num).toBe(3);
         },
@@ -126,7 +150,11 @@ describe("css-counter-style", function () {
         done,
         "@counter-style test { system: extends decimal; }",
         function (result, counterStyles) {
-          var system = counterStyles["test"].properties.system.value;
+          var style = counterStyles._resolve("test");
+          expect(style).not.toBeNull();
+          if (!style) return;
+          // @ts-expect-error ignore
+          var system = style._properties.system.value;
           expect(system.values[0].name).toBe("extends");
           expect(system.values[1].name).toBe("decimal");
         },
@@ -138,7 +166,10 @@ describe("css-counter-style", function () {
         done,
         "@counter-style test { system: invalid-keyword; }",
         function (result, counterStyles) {
-          expect(counterStyles["test"].properties.system).toBeUndefined();
+          var style = counterStyles._resolve("test");
+          expect(style).not.toBeNull();
+          if (!style) return;
+          expect(style._properties.system).toBeUndefined();
         },
       );
     });
@@ -148,7 +179,10 @@ describe("css-counter-style", function () {
         done,
         "@counter-style test { system: extends none; }",
         function (result, counterStyles) {
-          expect(counterStyles["test"].properties.system).toBeUndefined();
+          var style = counterStyles._resolve("test");
+          expect(style).not.toBeNull();
+          if (!style) return;
+          expect(style._properties.system).toBeUndefined();
         },
       );
     });
@@ -158,7 +192,24 @@ describe("css-counter-style", function () {
         done,
         "@counter-style test { system: extends None; }",
         function (result, counterStyles) {
-          expect(counterStyles["test"].properties.system).toBeUndefined();
+          var style = counterStyles._resolve("test");
+          expect(style).not.toBeNull();
+          if (!style) return;
+          expect(style._properties.system).toBeUndefined();
+        },
+      );
+    });
+
+    it("should reject system: -internal-ethiopic-numeric (internal use only)", function (done) {
+      parseStylesheet(
+        done,
+        "@counter-style test { system: -internal-ethiopic-numeric; }",
+        function (result, counterStyles) {
+          // -internal-ethiopic-numeric is only for internal use and should not be parsed
+          var style = counterStyles._resolve("test");
+          expect(style).not.toBeNull();
+          if (!style) return;
+          expect(style._properties.system).toBeUndefined();
         },
       );
     });
@@ -170,8 +221,12 @@ describe("css-counter-style", function () {
         done,
         '@counter-style test { negative: "-"; }',
         function (result, counterStyles) {
-          expect(counterStyles["test"].properties.negative).toBeDefined();
-          expect(counterStyles["test"].properties.negative.value.str).toBe("-");
+          var style = counterStyles._resolve("test");
+          expect(style).not.toBeNull();
+          if (!style) return;
+          expect(style._properties.negative).toBeDefined();
+          // @ts-expect-error ignore
+          expect(style._properties.negative.value.str).toBe("-");
         },
       );
     });
@@ -181,7 +236,11 @@ describe("css-counter-style", function () {
         done,
         '@counter-style test { negative: "(" ")"; }',
         function (result, counterStyles) {
-          var neg = counterStyles["test"].properties.negative.value;
+          var style = counterStyles._resolve("test");
+          expect(style).not.toBeNull();
+          if (!style) return;
+          // @ts-expect-error ignore
+          var neg = style._properties.negative.value;
           expect(neg.values[0].str).toBe("(");
           expect(neg.values[1].str).toBe(")");
         },
@@ -193,9 +252,11 @@ describe("css-counter-style", function () {
         done,
         "@counter-style test { negative: custom-ident; }",
         function (result, counterStyles) {
-          expect(counterStyles["test"].properties.negative.value.name).toBe(
-            "custom-ident",
-          );
+          var style = counterStyles._resolve("test");
+          expect(style).not.toBeNull();
+          if (!style) return;
+          // @ts-expect-error ignore
+          expect(style._properties.negative.value.name).toBe("custom-ident");
         },
       );
     });
@@ -205,7 +266,11 @@ describe("css-counter-style", function () {
         done,
         '@counter-style test { negative: "-" custom-ident; }',
         function (result, counterStyles) {
-          var neg = counterStyles["test"].properties.negative.value;
+          var style = counterStyles._resolve("test");
+          expect(style).not.toBeNull();
+          if (!style) return;
+          // @ts-expect-error ignore
+          var neg = style._properties.negative.value;
           expect(neg.values[0].str).toBe("-");
           expect(neg.values[1].name).toBe("custom-ident");
         },
@@ -217,7 +282,10 @@ describe("css-counter-style", function () {
         done,
         "@counter-style test { negative: 123; }",
         function (result, counterStyles) {
-          expect(counterStyles["test"].properties.negative).toBeUndefined();
+          var style = counterStyles._resolve("test");
+          expect(style).not.toBeNull();
+          if (!style) return;
+          expect(style._properties.negative).toBeUndefined();
         },
       );
     });
@@ -229,7 +297,11 @@ describe("css-counter-style", function () {
         done,
         '@counter-style test { prefix: "["; }',
         function (result, counterStyles) {
-          expect(counterStyles["test"].properties.prefix.value.str).toBe("[");
+          var style = counterStyles._resolve("test");
+          expect(style).not.toBeNull();
+          if (!style) return;
+          // @ts-expect-error ignore
+          expect(style._properties.prefix.value.str).toBe("[");
         },
       );
     });
@@ -239,9 +311,11 @@ describe("css-counter-style", function () {
         done,
         "@counter-style test { prefix: custom-ident; }",
         function (result, counterStyles) {
-          expect(counterStyles["test"].properties.prefix.value.name).toBe(
-            "custom-ident",
-          );
+          var style = counterStyles._resolve("test");
+          expect(style).not.toBeNull();
+          if (!style) return;
+          // @ts-expect-error ignore
+          expect(style._properties.prefix.value.name).toBe("custom-ident");
         },
       );
     });
@@ -251,7 +325,10 @@ describe("css-counter-style", function () {
         done,
         "@counter-style test { prefix: 456; }",
         function (result, counterStyles) {
-          expect(counterStyles["test"].properties.prefix).toBeUndefined();
+          var style = counterStyles._resolve("test");
+          expect(style).not.toBeNull();
+          if (!style) return;
+          expect(style._properties.prefix).toBeUndefined();
         },
       );
     });
@@ -263,7 +340,11 @@ describe("css-counter-style", function () {
         done,
         '@counter-style test { suffix: "] "; }',
         function (result, counterStyles) {
-          expect(counterStyles["test"].properties.suffix.value.str).toBe("] ");
+          var style = counterStyles._resolve("test");
+          expect(style).not.toBeNull();
+          if (!style) return;
+          // @ts-expect-error ignore
+          expect(style._properties.suffix.value.str).toBe("] ");
         },
       );
     });
@@ -273,9 +354,11 @@ describe("css-counter-style", function () {
         done,
         "@counter-style test { suffix: custom-ident; }",
         function (result, counterStyles) {
-          expect(counterStyles["test"].properties.suffix.value.name).toBe(
-            "custom-ident",
-          );
+          var style = counterStyles._resolve("test");
+          expect(style).not.toBeNull();
+          if (!style) return;
+          // @ts-expect-error ignore
+          expect(style._properties.suffix.value.name).toBe("custom-ident");
         },
       );
     });
@@ -285,7 +368,10 @@ describe("css-counter-style", function () {
         done,
         "@counter-style test { suffix: 789; }",
         function (result, counterStyles) {
-          expect(counterStyles["test"].properties.suffix).toBeUndefined();
+          var style = counterStyles._resolve("test");
+          expect(style).not.toBeNull();
+          if (!style) return;
+          expect(style._properties.suffix).toBeUndefined();
         },
       );
     });
@@ -297,9 +383,11 @@ describe("css-counter-style", function () {
         done,
         "@counter-style test { range: auto; }",
         function (result, counterStyles) {
-          expect(counterStyles["test"].properties.range.value.name).toBe(
-            "auto",
-          );
+          var style = counterStyles._resolve("test");
+          expect(style).not.toBeNull();
+          if (!style) return;
+          // @ts-expect-error ignore
+          expect(style._properties.range.value.name).toBe("auto");
         },
       );
     });
@@ -309,7 +397,11 @@ describe("css-counter-style", function () {
         done,
         "@counter-style test { range: 0 100; }",
         function (result, counterStyles) {
-          var range = counterStyles["test"].properties.range.value;
+          var style = counterStyles._resolve("test");
+          expect(style).not.toBeNull();
+          if (!style) return;
+          // @ts-expect-error ignore
+          var range = style._properties.range.value;
           expect(range.values[0].num).toBe(0);
           expect(range.values[1].num).toBe(100);
         },
@@ -321,7 +413,11 @@ describe("css-counter-style", function () {
         done,
         "@counter-style test { range: -9999 9999, -10 10; }",
         function (result, counterStyles) {
-          var range = counterStyles["test"].properties.range.value;
+          var style = counterStyles._resolve("test");
+          expect(style).not.toBeNull();
+          if (!style) return;
+          // @ts-expect-error ignore
+          var range = style._properties.range.value;
           expect(range.values.length).toBe(2);
         },
       );
@@ -332,7 +428,10 @@ describe("css-counter-style", function () {
         done,
         "@counter-style test { range: infinite 100, 0 infinite; }",
         function (result, counterStyles) {
-          expect(counterStyles["test"].properties.range).toBeDefined();
+          var style = counterStyles._resolve("test");
+          expect(style).not.toBeNull();
+          if (!style) return;
+          expect(style._properties.range).toBeDefined();
         },
       );
     });
@@ -342,7 +441,10 @@ describe("css-counter-style", function () {
         done,
         "@counter-style test { range: 100 50; }",
         function (result, counterStyles) {
-          expect(counterStyles["test"].properties.range).toBeUndefined();
+          var style = counterStyles._resolve("test");
+          expect(style).not.toBeNull();
+          if (!style) return;
+          expect(style._properties.range).toBeUndefined();
         },
       );
     });
@@ -352,7 +454,10 @@ describe("css-counter-style", function () {
         done,
         '@counter-style test { range: "a" "b"; }',
         function (result, counterStyles) {
-          expect(counterStyles["test"].properties.range).toBeUndefined();
+          var style = counterStyles._resolve("test");
+          expect(style).not.toBeNull();
+          if (!style) return;
+          expect(style._properties.range).toBeUndefined();
         },
       );
     });
@@ -364,7 +469,11 @@ describe("css-counter-style", function () {
         done,
         '@counter-style test { pad: 3 "0"; }',
         function (result, counterStyles) {
-          var pad = counterStyles["test"].properties.pad.value;
+          var style = counterStyles._resolve("test");
+          expect(style).not.toBeNull();
+          if (!style) return;
+          // @ts-expect-error ignore
+          var pad = style._properties.pad.value;
           expect(pad.values[0].num).toBe(3);
           expect(pad.values[1].str).toBe("0");
         },
@@ -376,7 +485,11 @@ describe("css-counter-style", function () {
         done,
         '@counter-style test { pad: "0" 3; }',
         function (result, counterStyles) {
-          var pad = counterStyles["test"].properties.pad.value;
+          var style = counterStyles._resolve("test");
+          expect(style).not.toBeNull();
+          if (!style) return;
+          // @ts-expect-error ignore
+          var pad = style._properties.pad.value;
           expect(pad.values[0].str).toBe("0");
           expect(pad.values[1].num).toBe(3);
         },
@@ -388,7 +501,10 @@ describe("css-counter-style", function () {
         done,
         '@counter-style test { pad: 0 "*"; }',
         function (result, counterStyles) {
-          expect(counterStyles["test"].properties.pad).toBeDefined();
+          var style = counterStyles._resolve("test");
+          expect(style).not.toBeNull();
+          if (!style) return;
+          expect(style._properties.pad).toBeDefined();
         },
       );
     });
@@ -398,7 +514,10 @@ describe("css-counter-style", function () {
         done,
         '@counter-style test { pad: -1 "0"; }',
         function (result, counterStyles) {
-          expect(counterStyles["test"].properties.pad).toBeUndefined();
+          var style = counterStyles._resolve("test");
+          expect(style).not.toBeNull();
+          if (!style) return;
+          expect(style._properties.pad).toBeUndefined();
         },
       );
     });
@@ -408,7 +527,10 @@ describe("css-counter-style", function () {
         done,
         "@counter-style test { pad: 3; }",
         function (result, counterStyles) {
-          expect(counterStyles["test"].properties.pad).toBeUndefined();
+          var style = counterStyles._resolve("test");
+          expect(style).not.toBeNull();
+          if (!style) return;
+          expect(style._properties.pad).toBeUndefined();
         },
       );
     });
@@ -420,9 +542,11 @@ describe("css-counter-style", function () {
         done,
         "@counter-style test { fallback: decimal; }",
         function (result, counterStyles) {
-          expect(counterStyles["test"].properties.fallback.value.name).toBe(
-            "decimal",
-          );
+          var style = counterStyles._resolve("test");
+          expect(style).not.toBeNull();
+          if (!style) return;
+          // @ts-expect-error ignore
+          expect(style._properties.fallback.value.name).toBe("decimal");
         },
       );
     });
@@ -432,9 +556,11 @@ describe("css-counter-style", function () {
         done,
         "@counter-style test { fallback: lower-roman; }",
         function (result, counterStyles) {
-          expect(counterStyles["test"].properties.fallback.value.name).toBe(
-            "lower-roman",
-          );
+          var style = counterStyles._resolve("test");
+          expect(style).not.toBeNull();
+          if (!style) return;
+          // @ts-expect-error ignore
+          expect(style._properties.fallback.value.name).toBe("lower-roman");
         },
       );
     });
@@ -444,7 +570,10 @@ describe("css-counter-style", function () {
         done,
         "@counter-style test { fallback: none; }",
         function (result, counterStyles) {
-          expect(counterStyles["test"].properties.fallback).toBeUndefined();
+          var style = counterStyles._resolve("test");
+          expect(style).not.toBeNull();
+          if (!style) return;
+          expect(style._properties.fallback).toBeUndefined();
         },
       );
     });
@@ -454,7 +583,10 @@ describe("css-counter-style", function () {
         done,
         '@counter-style test { fallback: "decimal"; }',
         function (result, counterStyles) {
-          expect(counterStyles["test"].properties.fallback).toBeUndefined();
+          var style = counterStyles._resolve("test");
+          expect(style).not.toBeNull();
+          if (!style) return;
+          expect(style._properties.fallback).toBeUndefined();
         },
       );
     });
@@ -466,7 +598,11 @@ describe("css-counter-style", function () {
         done,
         '@counter-style test { symbols: "*"; }',
         function (result, counterStyles) {
-          expect(counterStyles["test"].properties.symbols.value.str).toBe("*");
+          var style = counterStyles._resolve("test");
+          expect(style).not.toBeNull();
+          if (!style) return;
+          // @ts-expect-error ignore
+          expect(style._properties.symbols.value.str).toBe("*");
         },
       );
     });
@@ -476,7 +612,11 @@ describe("css-counter-style", function () {
         done,
         '@counter-style test { symbols: "○" "●" "◇" "◆"; }',
         function (result, counterStyles) {
-          var symbols = counterStyles["test"].properties.symbols.value;
+          var style = counterStyles._resolve("test");
+          expect(style).not.toBeNull();
+          if (!style) return;
+          // @ts-expect-error ignore
+          var symbols = style._properties.symbols.value;
           expect(symbols.values.length).toBe(4);
         },
       );
@@ -487,7 +627,11 @@ describe("css-counter-style", function () {
         done,
         "@counter-style test { symbols: bullet circle square; }",
         function (result, counterStyles) {
-          var symbols = counterStyles["test"].properties.symbols.value;
+          var style = counterStyles._resolve("test");
+          expect(style).not.toBeNull();
+          if (!style) return;
+          // @ts-expect-error ignore
+          var symbols = style._properties.symbols.value;
           expect(symbols.values.length).toBe(3);
           expect(symbols.values[0].name).toBe("bullet");
           expect(symbols.values[1].name).toBe("circle");
@@ -501,7 +645,11 @@ describe("css-counter-style", function () {
         done,
         '@counter-style test { symbols: "★" star "☆"; }',
         function (result, counterStyles) {
-          var symbols = counterStyles["test"].properties.symbols.value;
+          var style = counterStyles._resolve("test");
+          expect(style).not.toBeNull();
+          if (!style) return;
+          // @ts-expect-error ignore
+          var symbols = style._properties.symbols.value;
           expect(symbols.values.length).toBe(3);
           expect(symbols.values[0].str).toBe("★");
           expect(symbols.values[1].name).toBe("star");
@@ -515,7 +663,10 @@ describe("css-counter-style", function () {
         done,
         "@counter-style test { symbols: 123; }",
         function (result, counterStyles) {
-          expect(counterStyles["test"].properties.symbols).toBeUndefined();
+          var style = counterStyles._resolve("test");
+          expect(style).not.toBeNull();
+          if (!style) return;
+          expect(style._properties.symbols).toBeUndefined();
         },
       );
     });
@@ -527,7 +678,11 @@ describe("css-counter-style", function () {
         done,
         '@counter-style test { additive-symbols: 10 "X"; }',
         function (result, counterStyles) {
-          var as = counterStyles["test"].properties["additive-symbols"].value;
+          var style = counterStyles._resolve("test");
+          expect(style).not.toBeNull();
+          if (!style) return;
+          // @ts-expect-error ignore
+          var as = style._properties["additive-symbols"].value;
           expect(as.values[0].num).toBe(10);
           expect(as.values[1].str).toBe("X");
         },
@@ -539,7 +694,11 @@ describe("css-counter-style", function () {
         done,
         '@counter-style test { additive-symbols: "X" 10; }',
         function (result, counterStyles) {
-          var as = counterStyles["test"].properties["additive-symbols"].value;
+          var style = counterStyles._resolve("test");
+          expect(style).not.toBeNull();
+          if (!style) return;
+          // @ts-expect-error ignore
+          var as = style._properties["additive-symbols"].value;
           expect(as.values[0].str).toBe("X");
           expect(as.values[1].num).toBe(10);
         },
@@ -551,7 +710,11 @@ describe("css-counter-style", function () {
         done,
         "@counter-style test { additive-symbols: 1000 M, 500 D, 100 C; }",
         function (result, counterStyles) {
-          var as = counterStyles["test"].properties["additive-symbols"].value;
+          var style = counterStyles._resolve("test");
+          expect(style).not.toBeNull();
+          if (!style) return;
+          // @ts-expect-error ignore
+          var as = style._properties["additive-symbols"].value;
           expect(as.values.length).toBe(3);
         },
       );
@@ -562,9 +725,10 @@ describe("css-counter-style", function () {
         done,
         '@counter-style test { additive-symbols: 0 "zero"; }',
         function (result, counterStyles) {
-          expect(
-            counterStyles["test"].properties["additive-symbols"],
-          ).toBeDefined();
+          var style = counterStyles._resolve("test");
+          expect(style).not.toBeNull();
+          if (!style) return;
+          expect(style._properties["additive-symbols"]).toBeDefined();
         },
       );
     });
@@ -574,9 +738,10 @@ describe("css-counter-style", function () {
         done,
         '@counter-style test { additive-symbols: -1 "X"; }',
         function (result, counterStyles) {
-          expect(
-            counterStyles["test"].properties["additive-symbols"],
-          ).toBeUndefined();
+          var style = counterStyles._resolve("test");
+          expect(style).not.toBeNull();
+          if (!style) return;
+          expect(style._properties["additive-symbols"]).toBeUndefined();
         },
       );
     });
@@ -586,9 +751,10 @@ describe("css-counter-style", function () {
         done,
         "@counter-style test { additive-symbols: 10; }",
         function (result, counterStyles) {
-          expect(
-            counterStyles["test"].properties["additive-symbols"],
-          ).toBeUndefined();
+          var style = counterStyles._resolve("test");
+          expect(style).not.toBeNull();
+          if (!style) return;
+          expect(style._properties["additive-symbols"]).toBeUndefined();
         },
       );
     });
@@ -598,9 +764,10 @@ describe("css-counter-style", function () {
         done,
         '@counter-style test { additive-symbols: "X"; }',
         function (result, counterStyles) {
-          expect(
-            counterStyles["test"].properties["additive-symbols"],
-          ).toBeUndefined();
+          var style = counterStyles._resolve("test");
+          expect(style).not.toBeNull();
+          if (!style) return;
+          expect(style._properties["additive-symbols"]).toBeUndefined();
         },
       );
     });
@@ -612,9 +779,11 @@ describe("css-counter-style", function () {
         done,
         "@counter-style test { speak-as: auto; }",
         function (result, counterStyles) {
-          expect(counterStyles["test"].properties["speak-as"].value.name).toBe(
-            "auto",
-          );
+          var style = counterStyles._resolve("test");
+          expect(style).not.toBeNull();
+          if (!style) return;
+          // @ts-expect-error ignore
+          expect(style._properties["speak-as"].value.name).toBe("auto");
         },
       );
     });
@@ -624,9 +793,11 @@ describe("css-counter-style", function () {
         done,
         "@counter-style test { speak-as: bullets; }",
         function (result, counterStyles) {
-          expect(counterStyles["test"].properties["speak-as"].value.name).toBe(
-            "bullets",
-          );
+          var style = counterStyles._resolve("test");
+          expect(style).not.toBeNull();
+          if (!style) return;
+          // @ts-expect-error ignore
+          expect(style._properties["speak-as"].value.name).toBe("bullets");
         },
       );
     });
@@ -636,9 +807,11 @@ describe("css-counter-style", function () {
         done,
         "@counter-style test { speak-as: numbers; }",
         function (result, counterStyles) {
-          expect(counterStyles["test"].properties["speak-as"].value.name).toBe(
-            "numbers",
-          );
+          var style = counterStyles._resolve("test");
+          expect(style).not.toBeNull();
+          if (!style) return;
+          // @ts-expect-error ignore
+          expect(style._properties["speak-as"].value.name).toBe("numbers");
         },
       );
     });
@@ -648,9 +821,11 @@ describe("css-counter-style", function () {
         done,
         "@counter-style test { speak-as: words; }",
         function (result, counterStyles) {
-          expect(counterStyles["test"].properties["speak-as"].value.name).toBe(
-            "words",
-          );
+          var style = counterStyles._resolve("test");
+          expect(style).not.toBeNull();
+          if (!style) return;
+          // @ts-expect-error ignore
+          expect(style._properties["speak-as"].value.name).toBe("words");
         },
       );
     });
@@ -660,9 +835,11 @@ describe("css-counter-style", function () {
         done,
         "@counter-style test { speak-as: spell-out; }",
         function (result, counterStyles) {
-          expect(counterStyles["test"].properties["speak-as"].value.name).toBe(
-            "spell-out",
-          );
+          var style = counterStyles._resolve("test");
+          expect(style).not.toBeNull();
+          if (!style) return;
+          // @ts-expect-error ignore
+          expect(style._properties["speak-as"].value.name).toBe("spell-out");
         },
       );
     });
@@ -672,9 +849,11 @@ describe("css-counter-style", function () {
         done,
         "@counter-style test { speak-as: decimal; }",
         function (result, counterStyles) {
-          expect(counterStyles["test"].properties["speak-as"].value.name).toBe(
-            "decimal",
-          );
+          var style = counterStyles._resolve("test");
+          expect(style).not.toBeNull();
+          if (!style) return;
+          // @ts-expect-error ignore
+          expect(style._properties["speak-as"].value.name).toBe("decimal");
         },
       );
     });
@@ -684,7 +863,10 @@ describe("css-counter-style", function () {
         done,
         "@counter-style test { speak-as: none; }",
         function (result, counterStyles) {
-          expect(counterStyles["test"].properties["speak-as"]).toBeUndefined();
+          var style = counterStyles._resolve("test");
+          expect(style).not.toBeNull();
+          if (!style) return;
+          expect(style._properties["speak-as"]).toBeUndefined();
         },
       );
     });
@@ -694,7 +876,10 @@ describe("css-counter-style", function () {
         done,
         '@counter-style test { speak-as: "auto"; }',
         function (result, counterStyles) {
-          expect(counterStyles["test"].properties["speak-as"]).toBeUndefined();
+          var style = counterStyles._resolve("test");
+          expect(style).not.toBeNull();
+          if (!style) return;
+          expect(style._properties["speak-as"]).toBeUndefined();
         },
       );
     });
@@ -707,7 +892,7 @@ describe("css-counter-style", function () {
         "@counter-style none { system: cyclic; }",
         function (result, counterStyles) {
           expect(result).toBe(true);
-          expect(counterStyles["none"]).toBeUndefined();
+          expect(counterStyles._resolve("none")).toBeNull();
         },
       );
     });
@@ -718,7 +903,7 @@ describe("css-counter-style", function () {
         "@counter-style None { system: cyclic; }",
         function (result, counterStyles) {
           expect(result).toBe(true);
-          expect(counterStyles["None"]).toBeUndefined();
+          expect(counterStyles._resolve("None")).toBeNull();
         },
       );
     });
@@ -730,11 +915,12 @@ describe("css-counter-style", function () {
         function (result, counterStyles) {
           expect(result).toBe(true);
           // decimal is non-overridable, but built-in should still exist
-          expect(counterStyles["decimal"]).toBeDefined();
+          var style = counterStyles._resolve("decimal");
+          expect(style).not.toBeNull();
+          if (!style) return;
           // Check it's still the built-in (numeric system)
-          expect(counterStyles["decimal"].properties.system.value.name).toBe(
-            "numeric",
-          );
+          // @ts-expect-error ignore
+          expect(style._properties.system.value.name).toBe("numeric");
         },
       );
     });
@@ -745,10 +931,1232 @@ describe("css-counter-style", function () {
         '@counter-style Decimal { system: cyclic; symbols: "*"; }',
         function (result, counterStyles) {
           expect(result).toBe(true);
-          expect(counterStyles["Decimal"]).toBeDefined();
-          expect(counterStyles["Decimal"].properties.system.value.name).toBe(
-            "cyclic",
-          );
+          var style = counterStyles._resolve("Decimal");
+          expect(style).not.toBeNull();
+          if (!style) return;
+          // @ts-expect-error ignore
+          expect(style._properties.system.value.name).toBe("cyclic");
+        },
+      );
+    });
+  });
+
+  describe("CounterStyle.format()", function () {
+    describe("cyclic system", function () {
+      it("should format positive values with single symbol", function (done) {
+        parseStylesheet(
+          done,
+          '@counter-style test { system: cyclic; symbols: "*"; }',
+          function (result, counterStyles) {
+            var style = counterStyles._resolve("test");
+            expect(style).not.toBeNull();
+            if (!style) return;
+            expect(style.format(1)).toBe("*");
+            expect(style.format(2)).toBe("*");
+            expect(style.format(100)).toBe("*");
+          },
+        );
+      });
+
+      it("should cycle through multiple symbols", function (done) {
+        parseStylesheet(
+          done,
+          '@counter-style test { system: cyclic; symbols: "A" "B" "C"; }',
+          function (result, counterStyles) {
+            var style = counterStyles._resolve("test");
+            expect(style).not.toBeNull();
+            if (!style) return;
+            // ((value - 1) mod N)
+            expect(style.format(1)).toBe("A"); // (1-1) mod 3 = 0
+            expect(style.format(2)).toBe("B"); // (2-1) mod 3 = 1
+            expect(style.format(3)).toBe("C"); // (3-1) mod 3 = 2
+            expect(style.format(4)).toBe("A"); // (4-1) mod 3 = 0
+            expect(style.format(5)).toBe("B"); // (5-1) mod 3 = 1
+            expect(style.format(6)).toBe("C"); // (6-1) mod 3 = 2
+            expect(style.format(7)).toBe("A"); // (7-1) mod 3 = 0
+          },
+        );
+      });
+
+      it("should handle negative values", function (done) {
+        parseStylesheet(
+          done,
+          '@counter-style test { system: cyclic; symbols: "A" "B" "C"; }',
+          function (result, counterStyles) {
+            var style = counterStyles._resolve("test");
+            expect(style).not.toBeNull();
+            if (!style) return;
+            // negative values also cycle
+            expect(style.format(-1)).toBe("B"); // ((-1)-1) mod 3 = -2 mod 3 = 1
+            expect(style.format(-2)).toBe("A"); // ((-2)-1) mod 3 = -3 mod 3 = 0
+            expect(style.format(-3)).toBe("C"); // ((-3)-1) mod 3 = -4 mod 3 = 2
+            expect(style.format(0)).toBe("C"); // ((0)-1) mod 3 = -1 mod 3 = 2
+          },
+        );
+      });
+
+      it("should work with built-in disc style", function (done) {
+        parseStylesheet(done, "", function (result, counterStyles) {
+          var disc = counterStyles._resolve("disc");
+          expect(disc).not.toBeNull();
+          if (!disc) return;
+          expect(disc.format(1)).toBe("\u2022"); // bullet
+          expect(disc.format(2)).toBe("\u2022");
+        });
+      });
+
+      it("should work with built-in circle style", function (done) {
+        parseStylesheet(done, "", function (result, counterStyles) {
+          var circle = counterStyles._resolve("circle");
+          expect(circle).not.toBeNull();
+          if (!circle) return;
+          expect(circle.format(1)).toBe("\u25E6"); // white bullet
+        });
+      });
+
+      it("should work with built-in square style", function (done) {
+        parseStylesheet(done, "", function (result, counterStyles) {
+          var square = counterStyles._resolve("square");
+          expect(square).not.toBeNull();
+          if (!square) return;
+          expect(square.format(1)).toBe("\u25AA"); // black small square
+        });
+      });
+    });
+
+    describe("fixed system", function () {
+      it("should format values starting from 1 by default", function (done) {
+        parseStylesheet(
+          done,
+          '@counter-style test { system: fixed; symbols: "A" "B" "C"; }',
+          function (result, counterStyles) {
+            var style = counterStyles._resolve("test");
+            expect(style).not.toBeNull();
+            if (!style) return;
+            expect(style.format(1)).toBe("A");
+            expect(style.format(2)).toBe("B");
+            expect(style.format(3)).toBe("C");
+          },
+        );
+      });
+
+      it("should fallback for values outside range", function (done) {
+        parseStylesheet(
+          done,
+          '@counter-style test { system: fixed; symbols: "A" "B" "C"; }',
+          function (result, counterStyles) {
+            var style = counterStyles._resolve("test");
+            expect(style).not.toBeNull();
+            if (!style) return;
+            // Values outside range [1, 3] fall back to decimal
+            expect(style.format(0)).toBe("0");
+            expect(style.format(-1)).toBe("-1");
+            expect(style.format(4)).toBe("4");
+            expect(style.format(100)).toBe("100");
+          },
+        );
+      });
+
+      it("should support custom first symbol value", function (done) {
+        parseStylesheet(
+          done,
+          '@counter-style test { system: fixed 5; symbols: "A" "B" "C"; }',
+          function (result, counterStyles) {
+            var style = counterStyles._resolve("test");
+            expect(style).not.toBeNull();
+            if (!style) return;
+            expect(style.format(5)).toBe("A");
+            expect(style.format(6)).toBe("B");
+            expect(style.format(7)).toBe("C");
+            // Outside range
+            expect(style.format(4)).toBe("4");
+            expect(style.format(8)).toBe("8");
+          },
+        );
+      });
+
+      it("should support negative first symbol value", function (done) {
+        parseStylesheet(
+          done,
+          '@counter-style test { system: fixed -2; symbols: "A" "B" "C"; }',
+          function (result, counterStyles) {
+            var style = counterStyles._resolve("test");
+            expect(style).not.toBeNull();
+            if (!style) return;
+            expect(style.format(-2)).toBe("A");
+            expect(style.format(-1)).toBe("B");
+            expect(style.format(0)).toBe("C");
+            // Outside range
+            expect(style.format(-3)).toBe("-3");
+            expect(style.format(1)).toBe("1");
+          },
+        );
+      });
+
+      it("should work with single symbol", function (done) {
+        parseStylesheet(
+          done,
+          '@counter-style test { system: fixed; symbols: "*"; }',
+          function (result, counterStyles) {
+            var style = counterStyles._resolve("test");
+            expect(style).not.toBeNull();
+            if (!style) return;
+            expect(style.format(1)).toBe("*");
+            expect(style.format(2)).toBe("2"); // fallback
+          },
+        );
+      });
+
+      it("should default first symbol value to 1", function (done) {
+        parseStylesheet(
+          done,
+          '@counter-style test { system: fixed; symbols: "X" "Y"; }',
+          function (result, counterStyles) {
+            var style = counterStyles._resolve("test");
+            expect(style).not.toBeNull();
+            if (!style) return;
+            // Default first symbol value is 1
+            expect(style.format(1)).toBe("X");
+            expect(style.format(2)).toBe("Y");
+            expect(style.format(0)).toBe("0"); // fallback
+          },
+        );
+      });
+    });
+
+    describe("symbolic system", function () {
+      it("should format with single symbol repeating", function (done) {
+        parseStylesheet(
+          done,
+          '@counter-style test { system: symbolic; symbols: "*"; }',
+          function (result, counterStyles) {
+            var style = counterStyles._resolve("test");
+            expect(style).not.toBeNull();
+            if (!style) return;
+            expect(style.format(1)).toBe("*");
+            expect(style.format(2)).toBe("**");
+            expect(style.format(3)).toBe("***");
+            expect(style.format(4)).toBe("****");
+          },
+        );
+      });
+
+      it("should cycle through symbols and increase repetition", function (done) {
+        parseStylesheet(
+          done,
+          '@counter-style test { system: symbolic; symbols: "*" "†"; }',
+          function (result, counterStyles) {
+            var style = counterStyles._resolve("test");
+            expect(style).not.toBeNull();
+            if (!style) return;
+            // First pass (length 1)
+            expect(style.format(1)).toBe("*");
+            expect(style.format(2)).toBe("†");
+            // Second pass (length 2)
+            expect(style.format(3)).toBe("**");
+            expect(style.format(4)).toBe("††");
+            // Third pass (length 3)
+            expect(style.format(5)).toBe("***");
+            expect(style.format(6)).toBe("†††");
+          },
+        );
+      });
+
+      it("should work with three symbols", function (done) {
+        parseStylesheet(
+          done,
+          '@counter-style test { system: symbolic; symbols: "A" "B" "C"; }',
+          function (result, counterStyles) {
+            var style = counterStyles._resolve("test");
+            expect(style).not.toBeNull();
+            if (!style) return;
+            // First pass (length 1)
+            expect(style.format(1)).toBe("A");
+            expect(style.format(2)).toBe("B");
+            expect(style.format(3)).toBe("C");
+            // Second pass (length 2)
+            expect(style.format(4)).toBe("AA");
+            expect(style.format(5)).toBe("BB");
+            expect(style.format(6)).toBe("CC");
+            // Third pass (length 3)
+            expect(style.format(7)).toBe("AAA");
+            expect(style.format(8)).toBe("BBB");
+            expect(style.format(9)).toBe("CCC");
+          },
+        );
+      });
+
+      it("should fallback for non-positive values", function (done) {
+        parseStylesheet(
+          done,
+          '@counter-style test { system: symbolic; symbols: "*"; }',
+          function (result, counterStyles) {
+            var style = counterStyles._resolve("test");
+            expect(style).not.toBeNull();
+            if (!style) return;
+            // symbolic is only defined for strictly positive values
+            expect(style.format(0)).toBe("0");
+            expect(style.format(-1)).toBe("-1");
+            expect(style.format(-5)).toBe("-5");
+          },
+        );
+      });
+
+      it("should be the default system", function (done) {
+        parseStylesheet(
+          done,
+          '@counter-style test { symbols: "X"; }',
+          function (result, counterStyles) {
+            var style = counterStyles._resolve("test");
+            expect(style).not.toBeNull();
+            if (!style) return;
+            // Default system is symbolic - uses symbolic formatting
+            expect(style.format(1)).toBe("X");
+            expect(style.format(2)).toBe("XX");
+            expect(style.format(3)).toBe("XXX");
+          },
+        );
+      });
+    });
+
+    describe("additive system", function () {
+      it("should format simple additive values", function (done) {
+        parseStylesheet(
+          done,
+          "@counter-style test { system: additive; additive-symbols: 5 V, 1 I; }",
+          function (result, counterStyles) {
+            var style = counterStyles._resolve("test");
+            expect(style).not.toBeNull();
+            if (!style) return;
+            expect(style.format(1)).toBe("I");
+            expect(style.format(2)).toBe("II");
+            expect(style.format(3)).toBe("III");
+            expect(style.format(4)).toBe("IIII");
+            expect(style.format(5)).toBe("V");
+            expect(style.format(6)).toBe("VI");
+            expect(style.format(7)).toBe("VII");
+            expect(style.format(10)).toBe("VV");
+          },
+        );
+      });
+
+      it("should format Roman numeral style", function (done) {
+        parseStylesheet(
+          done,
+          "@counter-style test { system: additive; additive-symbols: 1000 M, 500 D, 100 C, 50 L, 10 X, 5 V, 1 I; }",
+          function (result, counterStyles) {
+            var style = counterStyles._resolve("test");
+            expect(style).not.toBeNull();
+            if (!style) return;
+            expect(style.format(1)).toBe("I");
+            expect(style.format(3)).toBe("III");
+            expect(style.format(5)).toBe("V");
+            expect(style.format(6)).toBe("VI");
+            expect(style.format(10)).toBe("X");
+            expect(style.format(50)).toBe("L");
+            expect(style.format(100)).toBe("C");
+            expect(style.format(500)).toBe("D");
+            expect(style.format(1000)).toBe("M");
+            expect(style.format(2023)).toBe("MMXXIII");
+            expect(style.format(1666)).toBe("MDCLXVI");
+          },
+        );
+      });
+
+      it("should handle zero with zero-weight tuple", function (done) {
+        parseStylesheet(
+          done,
+          '@counter-style test { system: additive; additive-symbols: 5 V, 1 I, 0 "zero"; }',
+          function (result, counterStyles) {
+            var style = counterStyles._resolve("test");
+            expect(style).not.toBeNull();
+            if (!style) return;
+            expect(style.format(0)).toBe("zero");
+          },
+        );
+      });
+
+      it("should fallback for zero without zero-weight tuple", function (done) {
+        parseStylesheet(
+          done,
+          "@counter-style test { system: additive; additive-symbols: 5 V, 1 I; }",
+          function (result, counterStyles) {
+            var style = counterStyles._resolve("test");
+            expect(style).not.toBeNull();
+            if (!style) return;
+            expect(style.format(0)).toBe("0");
+          },
+        );
+      });
+
+      it("should fallback for negative values", function (done) {
+        parseStylesheet(
+          done,
+          "@counter-style test { system: additive; additive-symbols: 5 V, 1 I; }",
+          function (result, counterStyles) {
+            var style = counterStyles._resolve("test");
+            expect(style).not.toBeNull();
+            if (!style) return;
+            expect(style.format(-1)).toBe("-1");
+            expect(style.format(-5)).toBe("-5");
+          },
+        );
+      });
+
+      it("should fallback for unrepresentable values", function (done) {
+        parseStylesheet(
+          done,
+          "@counter-style test { system: additive; additive-symbols: 3 C, 2 B; }",
+          function (result, counterStyles) {
+            var style = counterStyles._resolve("test");
+            expect(style).not.toBeNull();
+            if (!style) return;
+            // 1 cannot be represented (no weight 1)
+            expect(style.format(1)).toBe("1");
+            expect(style.format(2)).toBe("B");
+            expect(style.format(3)).toBe("C");
+            // 7 = 3 + 3 + 1, but 1 cannot be represented
+            expect(style.format(7)).toBe("7");
+          },
+        );
+      });
+
+      it("should handle symbol-first order in tuple", function (done) {
+        parseStylesheet(
+          done,
+          "@counter-style test { system: additive; additive-symbols: V 5, I 1; }",
+          function (result, counterStyles) {
+            var style = counterStyles._resolve("test");
+            expect(style).not.toBeNull();
+            if (!style) return;
+            expect(style.format(6)).toBe("VI");
+          },
+        );
+      });
+    });
+
+    describe("numeric system", function () {
+      it("should format binary numbers", function (done) {
+        parseStylesheet(
+          done,
+          '@counter-style test { system: numeric; symbols: "0" "1"; }',
+          function (result, counterStyles) {
+            var style = counterStyles._resolve("test");
+            expect(style).not.toBeNull();
+            if (!style) return;
+            expect(style.format(0)).toBe("0");
+            expect(style.format(1)).toBe("1");
+            expect(style.format(2)).toBe("10");
+            expect(style.format(3)).toBe("11");
+            expect(style.format(42)).toBe("101010");
+          },
+        );
+      });
+
+      it("should format trinary numbers", function (done) {
+        parseStylesheet(
+          done,
+          '@counter-style test { system: numeric; symbols: "0" "1" "2"; }',
+          function (result, counterStyles) {
+            var style = counterStyles._resolve("test");
+            expect(style).not.toBeNull();
+            if (!style) return;
+            expect(style.format(1)).toBe("1");
+            expect(style.format(2)).toBe("2");
+            expect(style.format(3)).toBe("10");
+            expect(style.format(4)).toBe("11");
+            expect(style.format(5)).toBe("12");
+            expect(style.format(6)).toBe("20");
+          },
+        );
+      });
+
+      it("should handle negative values with negative sign", function (done) {
+        parseStylesheet(
+          done,
+          '@counter-style test { system: numeric; symbols: "0" "1" "2"; }',
+          function (result, counterStyles) {
+            var style = counterStyles._resolve("test");
+            expect(style).not.toBeNull();
+            if (!style) return;
+            expect(style.format(-1)).toBe("-1");
+            expect(style.format(-3)).toBe("-10");
+          },
+        );
+      });
+    });
+
+    describe("alphabetic system", function () {
+      it("should format like spreadsheet columns", function (done) {
+        parseStylesheet(
+          done,
+          '@counter-style test { system: alphabetic; symbols: "○" "●"; }',
+          function (result, counterStyles) {
+            var style = counterStyles._resolve("test");
+            expect(style).not.toBeNull();
+            if (!style) return;
+            // From EXAMPLE 5 in the spec
+            expect(style.format(1)).toBe("○");
+            expect(style.format(2)).toBe("●");
+            expect(style.format(3)).toBe("○○");
+            expect(style.format(4)).toBe("○●");
+            expect(style.format(5)).toBe("●○");
+            expect(style.format(6)).toBe("●●");
+            expect(style.format(7)).toBe("○○○");
+          },
+        );
+      });
+
+      it("should fallback for non-positive values", function (done) {
+        parseStylesheet(
+          done,
+          '@counter-style test { system: alphabetic; symbols: "A" "B"; }',
+          function (result, counterStyles) {
+            var style = counterStyles._resolve("test");
+            expect(style).not.toBeNull();
+            if (!style) return;
+            // alphabetic range is [1, Infinity]
+            expect(style.format(0)).toBe("0");
+            expect(style.format(-1)).toBe("-1");
+          },
+        );
+      });
+    });
+
+    describe("negative descriptor", function () {
+      it("should use custom negative prefix", function (done) {
+        parseStylesheet(
+          done,
+          '@counter-style test { system: numeric; symbols: "0" "1" "2" "3" "4" "5" "6" "7" "8" "9"; negative: "(" ")"; }',
+          function (result, counterStyles) {
+            var style = counterStyles._resolve("test");
+            expect(style).not.toBeNull();
+            if (!style) return;
+            expect(style.format(-2)).toBe("(2)");
+            expect(style.format(-1)).toBe("(1)");
+            expect(style.format(0)).toBe("0");
+            expect(style.format(1)).toBe("1");
+          },
+        );
+      });
+    });
+
+    describe("pad descriptor", function () {
+      it("should pad with zeros", function (done) {
+        parseStylesheet(
+          done,
+          '@counter-style test { system: numeric; symbols: "0" "1" "2" "3" "4" "5" "6" "7" "8" "9"; pad: 3 "0"; }',
+          function (result, counterStyles) {
+            var style = counterStyles._resolve("test");
+            expect(style).not.toBeNull();
+            if (!style) return;
+            expect(style.format(1)).toBe("001");
+            expect(style.format(20)).toBe("020");
+            expect(style.format(300)).toBe("300");
+            expect(style.format(4000)).toBe("4000");
+          },
+        );
+      });
+
+      it("should account for negative sign in padding", function (done) {
+        parseStylesheet(
+          done,
+          '@counter-style test { system: numeric; symbols: "0" "1" "2" "3" "4" "5" "6" "7" "8" "9"; pad: 3 "0"; }',
+          function (result, counterStyles) {
+            var style = counterStyles._resolve("test");
+            expect(style).not.toBeNull();
+            if (!style) return;
+            expect(style.format(-5)).toBe("-05");
+          },
+        );
+      });
+    });
+
+    describe("fallback mechanism", function () {
+      it("should use decimal CounterStyle for fallback", function (done) {
+        parseStylesheet(
+          done,
+          '@counter-style test { system: fixed; symbols: "A"; }',
+          function (result, counterStyles) {
+            var style = counterStyles._resolve("test");
+            var decimal = counterStyles._resolve("decimal");
+            expect(style).not.toBeNull();
+            expect(decimal).not.toBeNull();
+            if (!style || !decimal) return;
+            // Value 2 is outside fixed range [1, 1], falls back to decimal
+            expect(style.format(2)).toBe(decimal.format(2));
+            expect(style.format(100)).toBe(decimal.format(100));
+            expect(style.format(-50)).toBe(decimal.format(-50));
+          },
+        );
+      });
+    });
+
+    describe("extends system", function () {
+      it("should use algorithm from extended style", function (done) {
+        parseStylesheet(
+          done,
+          "@counter-style test { system: extends decimal; }",
+          function (result, counterStyles) {
+            var style = counterStyles._resolve("test");
+            var decimal = counterStyles._resolve("decimal");
+            expect(style).not.toBeNull();
+            expect(decimal).not.toBeNull();
+            if (!style || !decimal) return;
+            expect(style.format(1)).toBe(decimal.format(1));
+            expect(style.format(42)).toBe(decimal.format(42));
+            expect(style.format(-7)).toBe(decimal.format(-7));
+          },
+        );
+      });
+
+      it("should allow overriding negative descriptor", function (done) {
+        parseStylesheet(
+          done,
+          '@counter-style test { system: extends decimal; negative: "(" ")"; }',
+          function (result, counterStyles) {
+            var style = counterStyles._resolve("test");
+            expect(style).not.toBeNull();
+            if (!style) return;
+            expect(style.format(-5)).toBe("(5)");
+            expect(style.format(5)).toBe("5");
+          },
+        );
+      });
+
+      it("should allow overriding pad descriptor", function (done) {
+        parseStylesheet(
+          done,
+          '@counter-style test { system: extends decimal; pad: 3 "0"; }',
+          function (result, counterStyles) {
+            var style = counterStyles._resolve("test");
+            expect(style).not.toBeNull();
+            if (!style) return;
+            expect(style.format(1)).toBe("001");
+            expect(style.format(42)).toBe("042");
+          },
+        );
+      });
+
+      it("should inherit negative from extended style if not specified", function (done) {
+        parseStylesheet(
+          done,
+          '@counter-style base { system: numeric; symbols: "0" "1" "2" "3" "4" "5" "6" "7" "8" "9"; negative: "[" "]"; } @counter-style test { system: extends base; }',
+          function (result, counterStyles) {
+            var style = counterStyles._resolve("test");
+            expect(style).not.toBeNull();
+            if (!style) return;
+            expect(style.format(-5)).toBe("[5]");
+          },
+        );
+      });
+
+      it("should fall back to decimal if extended style does not exist", function (done) {
+        parseStylesheet(
+          done,
+          "@counter-style test { system: extends nonexistent; }",
+          function (result, counterStyles) {
+            var style = counterStyles._resolve("test");
+            var decimal = counterStyles._resolve("decimal");
+            expect(style).not.toBeNull();
+            expect(decimal).not.toBeNull();
+            if (!style || !decimal) return;
+            expect(style.format(42)).toBe(decimal.format(42));
+          },
+        );
+      });
+
+      it("should handle chain of extends", function (done) {
+        parseStylesheet(
+          done,
+          '@counter-style a { system: extends b; } @counter-style b { system: extends c; } @counter-style c { system: numeric; symbols: "0" "1"; }',
+          function (result, counterStyles) {
+            var styleA = counterStyles._resolve("a");
+            var styleC = counterStyles._resolve("c");
+            expect(styleA).not.toBeNull();
+            expect(styleC).not.toBeNull();
+            if (!styleA || !styleC) return;
+            // a extends b extends c (numeric binary)
+            expect(styleA.format(3)).toBe(styleC.format(3)); // "11" in binary
+            expect(styleA.format(5)).toBe(styleC.format(5)); // "101" in binary
+          },
+        );
+      });
+
+      it("should handle extends cycle (2 styles) by falling back to decimal", function (done) {
+        parseStylesheet(
+          done,
+          "@counter-style a { system: extends b; } @counter-style b { system: extends a; }",
+          function (result, counterStyles) {
+            var styleA = counterStyles._resolve("a");
+            var styleB = counterStyles._resolve("b");
+            var decimal = counterStyles._resolve("decimal");
+            expect(styleA).not.toBeNull();
+            expect(styleB).not.toBeNull();
+            expect(decimal).not.toBeNull();
+            if (!styleA || !styleB || !decimal) return;
+            // Both should fall back to decimal due to cycle
+            expect(styleA.format(42)).toBe(decimal.format(42));
+            expect(styleB.format(42)).toBe(decimal.format(42));
+          },
+        );
+      });
+
+      it("should handle extends cycle (3 styles) by falling back to decimal", function (done) {
+        parseStylesheet(
+          done,
+          "@counter-style a { system: extends b; } @counter-style b { system: extends c; } @counter-style c { system: extends a; }",
+          function (result, counterStyles) {
+            var styleA = counterStyles._resolve("a");
+            var styleB = counterStyles._resolve("b");
+            var styleC = counterStyles._resolve("c");
+            var decimal = counterStyles._resolve("decimal");
+            expect(styleA).not.toBeNull();
+            expect(styleB).not.toBeNull();
+            expect(styleC).not.toBeNull();
+            expect(decimal).not.toBeNull();
+            if (!styleA || !styleB || !styleC || !decimal) return;
+            // All should fall back to decimal due to cycle
+            expect(styleA.format(42)).toBe(decimal.format(42));
+            expect(styleB.format(42)).toBe(decimal.format(42));
+            expect(styleC.format(42)).toBe(decimal.format(42));
+          },
+        );
+      });
+
+      it("should handle self-extending style by falling back to decimal", function (done) {
+        parseStylesheet(
+          done,
+          "@counter-style a { system: extends a; }",
+          function (result, counterStyles) {
+            var styleA = counterStyles._resolve("a");
+            var decimal = counterStyles._resolve("decimal");
+            expect(styleA).not.toBeNull();
+            expect(decimal).not.toBeNull();
+            if (!styleA || !decimal) return;
+            // Self-reference is a cycle
+            expect(styleA.format(42)).toBe(decimal.format(42));
+          },
+        );
+      });
+
+      it("should inherit auto range from extended symbolic system", function (done) {
+        parseStylesheet(
+          done,
+          '@counter-style base { system: symbolic; symbols: "X"; } @counter-style test { system: extends base; }',
+          function (result, counterStyles) {
+            var style = counterStyles._resolve("test");
+            var decimal = counterStyles._resolve("decimal");
+            expect(style).not.toBeNull();
+            expect(decimal).not.toBeNull();
+            if (!style || !decimal) return;
+            // symbolic range is [1, Infinity], so 0 and negative should fall back
+            expect(style.format(1)).toBe("X");
+            expect(style.format(2)).toBe("XX");
+            expect(style.format(0)).toBe(decimal.format(0)); // fallback
+            expect(style.format(-1)).toBe(decimal.format(-1)); // fallback
+          },
+        );
+      });
+
+      it("should inherit auto range from extended additive system", function (done) {
+        parseStylesheet(
+          done,
+          "@counter-style base { system: additive; additive-symbols: 5 V, 1 I, 0 N; } @counter-style test { system: extends base; }",
+          function (result, counterStyles) {
+            var style = counterStyles._resolve("test");
+            var decimal = counterStyles._resolve("decimal");
+            expect(style).not.toBeNull();
+            expect(decimal).not.toBeNull();
+            if (!style || !decimal) return;
+            // additive range is [0, Infinity], so negative should fall back
+            expect(style.format(0)).toBe("N");
+            expect(style.format(1)).toBe("I");
+            expect(style.format(6)).toBe("VI");
+            expect(style.format(-1)).toBe(decimal.format(-1)); // fallback
+          },
+        );
+      });
+    });
+  });
+
+  describe("ethiopic-numeric system", function () {
+    // https://drafts.csswg.org/css-counter-styles-3/#ethiopic-numeric-counter-style
+    it("should have ethiopic-numeric as a built-in counter style", function (done) {
+      parseStylesheet(done, "", function (result, counterStyles) {
+        expect(counterStyles._resolve("ethiopic-numeric")).toBeDefined();
+      });
+    });
+
+    it("should format 1 as ፩ (U+1369)", function (done) {
+      parseStylesheet(done, "", function (result, counterStyles) {
+        var style = counterStyles._resolve("ethiopic-numeric");
+        expect(style).not.toBeNull();
+        if (!style) return;
+        expect(style.format(1)).toBe("\u1369");
+      });
+    });
+
+    it("should format single-digit numbers correctly", function (done) {
+      parseStylesheet(done, "", function (result, counterStyles) {
+        var style = counterStyles._resolve("ethiopic-numeric");
+        expect(style).not.toBeNull();
+        if (!style) return;
+        expect(style.format(2)).toBe("\u136A"); // ፪
+        expect(style.format(3)).toBe("\u136B"); // ፫
+        expect(style.format(4)).toBe("\u136C"); // ፬
+        expect(style.format(5)).toBe("\u136D"); // ፭
+        expect(style.format(6)).toBe("\u136E"); // ፮
+        expect(style.format(7)).toBe("\u136F"); // ፯
+        expect(style.format(8)).toBe("\u1370"); // ፰
+        expect(style.format(9)).toBe("\u1371"); // ፱
+      });
+    });
+
+    it("should format tens correctly", function (done) {
+      parseStylesheet(done, "", function (result, counterStyles) {
+        var style = counterStyles._resolve("ethiopic-numeric");
+        expect(style).not.toBeNull();
+        if (!style) return;
+        expect(style.format(10)).toBe("\u1372"); // ፲
+        expect(style.format(20)).toBe("\u1373"); // ፳
+        expect(style.format(30)).toBe("\u1374"); // ፴
+        expect(style.format(40)).toBe("\u1375"); // ፵
+        expect(style.format(50)).toBe("\u1376"); // ፶
+        expect(style.format(60)).toBe("\u1377"); // ፷
+        expect(style.format(70)).toBe("\u1378"); // ፸
+        expect(style.format(80)).toBe("\u1379"); // ፹
+        expect(style.format(90)).toBe("\u137A"); // ፺
+      });
+    });
+
+    it("should format two-digit numbers correctly", function (done) {
+      parseStylesheet(done, "", function (result, counterStyles) {
+        var style = counterStyles._resolve("ethiopic-numeric");
+        expect(style).not.toBeNull();
+        if (!style) return;
+        expect(style.format(11)).toBe("\u1372\u1369"); // ፲፩
+        expect(style.format(25)).toBe("\u1373\u136D"); // ፳፭
+        expect(style.format(99)).toBe("\u137A\u1371"); // ፺፱
+      });
+    });
+
+    it("should format 100 as ፻ (U+137B)", function (done) {
+      parseStylesheet(done, "", function (result, counterStyles) {
+        var style = counterStyles._resolve("ethiopic-numeric");
+        expect(style).not.toBeNull();
+        if (!style) return;
+        // 100: groups [00, 1], group1 is most significant with value 1, so digits removed
+        // group1 (odd index, original value 1 != 0) gets U+137B
+        expect(style.format(100)).toBe("\u137B");
+      });
+    });
+
+    it("should format hundreds correctly", function (done) {
+      parseStylesheet(done, "", function (result, counterStyles) {
+        var style = counterStyles._resolve("ethiopic-numeric");
+        expect(style).not.toBeNull();
+        if (!style) return;
+        expect(style.format(200)).toBe("\u136A\u137B"); // ፪፻
+        expect(style.format(300)).toBe("\u136B\u137B"); // ፫፻
+        expect(style.format(999)).toBe("\u1371\u137B\u137A\u1371"); // ፱፻፺፱
+      });
+    });
+
+    it("should format 10000 as ፼ (U+137C)", function (done) {
+      parseStylesheet(done, "", function (result, counterStyles) {
+        var style = counterStyles._resolve("ethiopic-numeric");
+        expect(style).not.toBeNull();
+        if (!style) return;
+        // 10000: groups [00, 00, 1]
+        // group2: most significant with value 1, digits removed
+        // group2 (even index != 0) gets U+137C
+        // group1: value 0, no separator
+        // group0: value 0, digits removed
+        expect(style.format(10000)).toBe("\u137C");
+      });
+    });
+
+    it("should format spec example 78010092 correctly", function (done) {
+      parseStylesheet(done, "", function (result, counterStyles) {
+        var style = counterStyles._resolve("ethiopic-numeric");
+        expect(style).not.toBeNull();
+        if (!style) return;
+        // 78010092: groups [92, 00, 01, 78] (indices 0, 1, 2, 3)
+        // group3 (78): ፸፰, odd index with value != 0, gets ፻
+        // group2 (01): even index (not most significant, not odd), value 1 stays → ፩, even != 0 gets ፼
+        // group1 (00): value 0, odd index but original value 0 so no separator
+        // group0 (92): ፺፪, index 0 so no separator
+        // Result: ፸፰፻፩፼፺፪
+        expect(style.format(78010092)).toBe(
+          "\u1378\u1370\u137B\u1369\u137C\u137A\u136A",
+        );
+      });
+    });
+
+    it("should format spec example 780100000092 correctly", function (done) {
+      parseStylesheet(done, "", function (result, counterStyles) {
+        var style = counterStyles._resolve("ethiopic-numeric");
+        expect(style).not.toBeNull();
+        if (!style) return;
+        // 780100000092: groups [92, 00, 00, 00, 01, 78] (indices 0, 1, 2, 3, 4, 5)
+        // group5 (78): ፸፰, odd index with value != 0, gets ፻
+        // group4 (01): even index (not most significant), value 1 → ፩, even != 0 gets ፼
+        // group3 (00): value 0, odd index but original value 0 so no separator
+        // group2 (00): value 0, even != 0 gets ፼
+        // group1 (00): value 0, odd index but original value 0 so no separator
+        // group0 (92): ፺፪, index 0 so no separator
+        // Result: ፸፰፻፩፼፼፺፪
+        expect(style.format(780100000092)).toBe(
+          "\u1378\u1370\u137B\u1369\u137C\u137C\u137A\u136A",
+        );
+      });
+    });
+
+    it("should use range 1 to infinity (fallback for 0 and negative)", function (done) {
+      parseStylesheet(done, "", function (result, counterStyles) {
+        var style = counterStyles._resolve("ethiopic-numeric");
+        var decimal = counterStyles._resolve("decimal");
+        expect(style).not.toBeNull();
+        expect(decimal).not.toBeNull();
+        if (!style || !decimal) return;
+        // 0 and negative values should fall back to decimal
+        expect(style.format(0)).toBe(decimal.format(0));
+        expect(style.format(-1)).toBe(decimal.format(-1));
+        expect(style.format(-100)).toBe(decimal.format(-100));
+      });
+    });
+
+    it("should have suffix '/ ' (U+002F U+0020)", function (done) {
+      parseStylesheet(done, "", function (result, counterStyles) {
+        var style = counterStyles._resolve("ethiopic-numeric");
+        expect(style).not.toBeNull();
+        if (!style) return;
+        expect(style._properties.suffix).toBeDefined();
+        // @ts-expect-error ignore
+        expect(style._properties.suffix.value.str).toBe("/ ");
+      });
+    });
+
+    it("should be extendable with system: extends", function (done) {
+      parseStylesheet(
+        done,
+        '@counter-style my-ethiopic { system: extends ethiopic-numeric; suffix: ") "; }',
+        function (result, counterStyles) {
+          var style = counterStyles._resolve("my-ethiopic");
+          expect(style).not.toBeNull();
+          if (!style) return;
+          // Should use ethiopic-numeric algorithm
+          expect(style.format(1)).toBe("\u1369");
+          expect(style.format(100)).toBe("\u137B");
+          // But with custom suffix
+          // @ts-expect-error ignore
+          expect(style._properties.suffix.value.str).toBe(") ");
+        },
+      );
+    });
+  });
+
+  describe("Chinese longhand counter styles", function () {
+    // https://drafts.csswg.org/css-counter-styles-3/#limited-chinese
+    describe("simp-chinese-informal", function () {
+      it("should be a built-in counter style", function (done) {
+        parseStylesheet(done, "", function (result, counterStyles) {
+          expect(counterStyles._resolve("simp-chinese-informal")).toBeDefined();
+        });
+      });
+
+      it("should format 0 as 零", function (done) {
+        parseStylesheet(done, "", function (result, counterStyles) {
+          var style = counterStyles._resolve("simp-chinese-informal");
+          expect(style).not.toBeNull();
+          if (!style) return;
+          expect(style.format(0)).toBe("零");
+        });
+      });
+
+      it("should format single-digit numbers correctly", function (done) {
+        parseStylesheet(done, "", function (result, counterStyles) {
+          var style = counterStyles._resolve("simp-chinese-informal");
+          expect(style).not.toBeNull();
+          if (!style) return;
+          expect(style.format(1)).toBe("一");
+          expect(style.format(2)).toBe("二");
+          expect(style.format(3)).toBe("三");
+          expect(style.format(4)).toBe("四");
+          expect(style.format(5)).toBe("五");
+          expect(style.format(6)).toBe("六");
+          expect(style.format(7)).toBe("七");
+          expect(style.format(8)).toBe("八");
+          expect(style.format(9)).toBe("九");
+        });
+      });
+
+      it("should format 10-19 without tens digit (informal rule)", function (done) {
+        parseStylesheet(done, "", function (result, counterStyles) {
+          var style = counterStyles._resolve("simp-chinese-informal");
+          expect(style).not.toBeNull();
+          if (!style) return;
+          expect(style.format(10)).toBe("十");
+          expect(style.format(11)).toBe("十一");
+          expect(style.format(12)).toBe("十二");
+          expect(style.format(19)).toBe("十九");
+        });
+      });
+
+      it("should format 20-99 with tens digit", function (done) {
+        parseStylesheet(done, "", function (result, counterStyles) {
+          var style = counterStyles._resolve("simp-chinese-informal");
+          expect(style).not.toBeNull();
+          if (!style) return;
+          expect(style.format(20)).toBe("二十");
+          expect(style.format(21)).toBe("二十一");
+          expect(style.format(50)).toBe("五十");
+          expect(style.format(99)).toBe("九十九");
+        });
+      });
+
+      it("should format hundreds correctly", function (done) {
+        parseStylesheet(done, "", function (result, counterStyles) {
+          var style = counterStyles._resolve("simp-chinese-informal");
+          expect(style).not.toBeNull();
+          if (!style) return;
+          expect(style.format(100)).toBe("一百");
+          expect(style.format(101)).toBe("一百零一");
+          expect(style.format(110)).toBe("一百一十");
+          expect(style.format(111)).toBe("一百一十一");
+          expect(style.format(120)).toBe("一百二十");
+        });
+      });
+
+      it("should format thousands correctly", function (done) {
+        parseStylesheet(done, "", function (result, counterStyles) {
+          var style = counterStyles._resolve("simp-chinese-informal");
+          expect(style).not.toBeNull();
+          if (!style) return;
+          expect(style.format(1000)).toBe("一千");
+          expect(style.format(1001)).toBe("一千零一");
+          expect(style.format(1010)).toBe("一千零一十");
+          expect(style.format(1100)).toBe("一千一百");
+          expect(style.format(1111)).toBe("一千一百一十一");
+          expect(style.format(9999)).toBe("九千九百九十九");
+        });
+      });
+
+      it("should format negative numbers correctly", function (done) {
+        parseStylesheet(done, "", function (result, counterStyles) {
+          var style = counterStyles._resolve("simp-chinese-informal");
+          expect(style).not.toBeNull();
+          if (!style) return;
+          expect(style.format(-1)).toBe("负一");
+          expect(style.format(-10)).toBe("负十");
+          expect(style.format(-100)).toBe("负一百");
+          expect(style.format(-1000)).toBe("负一千");
+        });
+      });
+
+      it("should have suffix '、' (U+3001)", function (done) {
+        parseStylesheet(done, "", function (result, counterStyles) {
+          var style = counterStyles._resolve("simp-chinese-informal");
+          expect(style).not.toBeNull();
+          if (!style) return;
+          expect(style._properties.suffix).toBeDefined();
+          // @ts-expect-error ignore
+          expect(style._properties.suffix.value.str).toBe("\u3001");
+        });
+      });
+
+      it("should fall back to cjk-decimal outside range -9999 to 9999", function (done) {
+        parseStylesheet(done, "", function (result, counterStyles) {
+          var style = counterStyles._resolve("simp-chinese-informal");
+          var cjkDecimal = counterStyles._resolve("cjk-decimal");
+          var decimal = counterStyles._resolve("decimal");
+          expect(style).not.toBeNull();
+          expect(cjkDecimal).not.toBeNull();
+          expect(decimal).not.toBeNull();
+          if (!style || !cjkDecimal || !decimal) return;
+          // 10000 falls back to cjk-decimal (which handles 0 to infinite)
+          expect(style.format(10000)).toBe(cjkDecimal.format(10000));
+          // -10000 falls back to cjk-decimal, but cjk-decimal has range 0 to infinite,
+          // so it further falls back to decimal
+          expect(style.format(-10000)).toBe(decimal.format(-10000));
+        });
+      });
+    });
+
+    describe("simp-chinese-formal", function () {
+      it("should be a built-in counter style", function (done) {
+        parseStylesheet(done, "", function (result, counterStyles) {
+          expect(counterStyles._resolve("simp-chinese-formal")).toBeDefined();
+        });
+      });
+
+      it("should format single-digit numbers with formal characters", function (done) {
+        parseStylesheet(done, "", function (result, counterStyles) {
+          var style = counterStyles._resolve("simp-chinese-formal");
+          expect(style).not.toBeNull();
+          if (!style) return;
+          expect(style.format(1)).toBe("壹");
+          expect(style.format(2)).toBe("贰");
+          expect(style.format(3)).toBe("叁");
+        });
+      });
+
+      it("should NOT apply informal 10-19 rule (formal style)", function (done) {
+        parseStylesheet(done, "", function (result, counterStyles) {
+          var style = counterStyles._resolve("simp-chinese-formal");
+          expect(style).not.toBeNull();
+          if (!style) return;
+          expect(style.format(10)).toBe("壹拾");
+          expect(style.format(11)).toBe("壹拾壹");
+          expect(style.format(19)).toBe("壹拾玖");
+        });
+      });
+
+      it("should format hundreds with formal markers", function (done) {
+        parseStylesheet(done, "", function (result, counterStyles) {
+          var style = counterStyles._resolve("simp-chinese-formal");
+          expect(style).not.toBeNull();
+          if (!style) return;
+          expect(style.format(100)).toBe("壹佰");
+          expect(style.format(111)).toBe("壹佰壹拾壹");
+        });
+      });
+
+      it("should format thousands with formal markers", function (done) {
+        parseStylesheet(done, "", function (result, counterStyles) {
+          var style = counterStyles._resolve("simp-chinese-formal");
+          expect(style).not.toBeNull();
+          if (!style) return;
+          expect(style.format(1000)).toBe("壹仟");
+          expect(style.format(1111)).toBe("壹仟壹佰壹拾壹");
+        });
+      });
+    });
+
+    describe("trad-chinese-informal", function () {
+      it("should be a built-in counter style", function (done) {
+        parseStylesheet(done, "", function (result, counterStyles) {
+          expect(counterStyles._resolve("trad-chinese-informal")).toBeDefined();
+        });
+      });
+
+      it("should format numbers same as simp-chinese-informal (same digits)", function (done) {
+        parseStylesheet(done, "", function (result, counterStyles) {
+          var style = counterStyles._resolve("trad-chinese-informal");
+          expect(style).not.toBeNull();
+          if (!style) return;
+          expect(style.format(1)).toBe("一");
+          expect(style.format(10)).toBe("十");
+          expect(style.format(11)).toBe("十一");
+          expect(style.format(100)).toBe("一百");
+          expect(style.format(1111)).toBe("一千一百一十一");
+        });
+      });
+
+      it("should use traditional negative sign 負", function (done) {
+        parseStylesheet(done, "", function (result, counterStyles) {
+          var style = counterStyles._resolve("trad-chinese-informal");
+          expect(style).not.toBeNull();
+          if (!style) return;
+          expect(style.format(-1)).toBe("負一");
+          expect(style.format(-100)).toBe("負一百");
+        });
+      });
+    });
+
+    describe("trad-chinese-formal", function () {
+      it("should be a built-in counter style", function (done) {
+        parseStylesheet(done, "", function (result, counterStyles) {
+          expect(counterStyles._resolve("trad-chinese-formal")).toBeDefined();
+        });
+      });
+
+      it("should use traditional formal characters", function (done) {
+        parseStylesheet(done, "", function (result, counterStyles) {
+          var style = counterStyles._resolve("trad-chinese-formal");
+          expect(style).not.toBeNull();
+          if (!style) return;
+          expect(style.format(1)).toBe("壹");
+          expect(style.format(2)).toBe("貳"); // Traditional form
+          expect(style.format(3)).toBe("參"); // Traditional form
+          expect(style.format(6)).toBe("陸"); // Traditional form
+        });
+      });
+
+      it("should NOT apply informal 10-19 rule", function (done) {
+        parseStylesheet(done, "", function (result, counterStyles) {
+          var style = counterStyles._resolve("trad-chinese-formal");
+          expect(style).not.toBeNull();
+          if (!style) return;
+          expect(style.format(10)).toBe("壹拾");
+          expect(style.format(11)).toBe("壹拾壹");
+        });
+      });
+
+      it("should use traditional negative sign 負", function (done) {
+        parseStylesheet(done, "", function (result, counterStyles) {
+          var style = counterStyles._resolve("trad-chinese-formal");
+          expect(style).not.toBeNull();
+          if (!style) return;
+          expect(style.format(-1)).toBe("負壹");
+        });
+      });
+    });
+
+    describe("cjk-ideographic", function () {
+      it("should be a built-in counter style (legacy)", function (done) {
+        parseStylesheet(done, "", function (result, counterStyles) {
+          expect(counterStyles._resolve("cjk-ideographic")).toBeDefined();
+        });
+      });
+
+      it("should be identical to trad-chinese-informal", function (done) {
+        parseStylesheet(done, "", function (result, counterStyles) {
+          var cjk = counterStyles._resolve("cjk-ideographic");
+          var trad = counterStyles._resolve("trad-chinese-informal");
+          expect(cjk).not.toBeNull();
+          expect(trad).not.toBeNull();
+          if (!cjk || !trad) return;
+          expect(cjk.format(1)).toBe(trad.format(1));
+          expect(cjk.format(10)).toBe(trad.format(10));
+          expect(cjk.format(11)).toBe(trad.format(11));
+          expect(cjk.format(100)).toBe(trad.format(100));
+          expect(cjk.format(1111)).toBe(trad.format(1111));
+          expect(cjk.format(-1)).toBe(trad.format(-1));
+        });
+      });
+    });
+
+    it("should reject system: -internal-chinese (internal use only)", function (done) {
+      parseStylesheet(
+        done,
+        "@counter-style test { system: -internal-chinese; }",
+        function (result, counterStyles) {
+          // -internal-chinese is only for internal use and should not be parsed
+          var style = counterStyles._resolve("test");
+          expect(style).not.toBeNull();
+          if (!style) return;
+          expect(style._properties.system).toBeUndefined();
+        },
+      );
+    });
+
+    it("should be extendable with system: extends", function (done) {
+      parseStylesheet(
+        done,
+        '@counter-style my-chinese { system: extends simp-chinese-informal; suffix: ") "; }',
+        function (result, counterStyles) {
+          var style = counterStyles._resolve("my-chinese");
+          expect(style).not.toBeNull();
+          if (!style) return;
+          // Should use simp-chinese-informal algorithm
+          expect(style.format(1)).toBe("一");
+          expect(style.format(10)).toBe("十");
+          expect(style.format(100)).toBe("一百");
+          // But with custom suffix
+          // @ts-expect-error ignore
+          expect(style._properties.suffix.value.str).toBe(") ");
         },
       );
     });
