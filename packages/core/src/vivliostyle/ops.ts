@@ -54,7 +54,12 @@ import * as Vgen from "./vgen";
 import * as Vtree from "./vtree";
 import * as XmlDoc from "./xml-doc";
 import { Layout as LayoutType } from "./types";
-import { UserAgentBaseCss, UserAgentPageCss, UserAgentTocCss } from "./assets";
+import {
+  UserAgentBaseCss,
+  UserAgentCounterStylesCss,
+  UserAgentPageCss,
+  UserAgentTocCss,
+} from "./assets";
 
 export const uaStylesheetBaseFetcher: TaskUtil.Fetcher<boolean> =
   new TaskUtil.Fetcher(() => {
@@ -105,20 +110,6 @@ class CounterStyleParserHandler extends CssCascade.PropSetParserHandler {
 
   override endRule(): void {
     super.endRule();
-    // Format descriptors for logging
-    const descriptors: string[] = [];
-    for (const [name, val] of Object.entries(this.elementStyle)) {
-      const cascadeValue = val as CssCascade.CascadeValue;
-      if (cascadeValue && cascadeValue.value) {
-        descriptors.push(`${name}: ${cascadeValue.value.toString()}`);
-      }
-    }
-    const descriptorStr =
-      descriptors.length > 0 ? `{ ${descriptors.join("; ")} }` : "{}";
-    Logging.logger.warn(
-      `not yet implemented: @counter-style ${this.counterStyleName} ${descriptorStr}`,
-    );
-    // Register the counter style after all descriptors have been parsed
     this.counterStyles.define(this.counterStyleName, this.elementStyle);
   }
 }
@@ -140,6 +131,7 @@ export class Style {
     public readonly flowProps: { [key: string]: CssCascade.ElementStyle },
     public readonly viewportProps: CssCascade.ElementStyle[],
     public readonly pageProps: { [key: string]: CssCascade.ElementStyle },
+    public readonly counterStyleStore: CounterStyle.CounterStyleStore,
   ) {
     this.fontDeobfuscator = store.fontDeobfuscator;
     this.validatorSet = store.validatorSet;
@@ -325,6 +317,7 @@ export class StyleInstance
       this.style.validatorSet,
       counterListener,
       counterResolver,
+      this.style.counterStyleStore,
     );
     counterResolver.setStyler(this.styler);
     this.styler.resetFlowChunkStream(this);
@@ -352,6 +345,7 @@ export class StyleInstance
       counterListener,
       counterResolver,
       this.lang,
+      this.style.counterStyleStore,
     );
 
     // Named page type at first page
@@ -464,6 +458,7 @@ export class StyleInstance
         style.validatorSet,
         counterListener,
         counterResolver,
+        style.counterStyleStore,
       );
       this.stylerMap[xmldoc.url] = styler;
     }
@@ -2403,6 +2398,16 @@ export class OPSDocStore extends Net.ResourceStore<XmlDoc.XMLDocHolder> {
           classes: null,
           media: null,
         });
+        sources.push({
+          url: Base.resolveURL(
+            "user-agent-counter-styles.css",
+            Base.resourceBaseURL,
+          ),
+          text: UserAgentCounterStylesCss,
+          flavor: CssParser.StylesheetFlavor.USER_AGENT,
+          classes: null,
+          media: null,
+        });
         if (isTocBox) {
           sources.push({
             url: Base.resolveURL("user-agent-toc.css", Base.resourceBaseURL),
@@ -2526,6 +2531,7 @@ export class OPSDocStore extends Net.ResourceStore<XmlDoc.XMLDocHolder> {
                   sph.flowProps,
                   sph.viewportProps,
                   sph.pageProps,
+                  sph.counterStyles,
                 );
                 this.styleByKey[key] = style;
                 delete this.styleFetcherByKey[key];

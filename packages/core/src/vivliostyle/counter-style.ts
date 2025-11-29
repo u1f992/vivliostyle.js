@@ -1132,46 +1132,6 @@ export class CounterStyleStore {
       ),
       suffix: new CssCascade.CascadeValue(new Css.Str("/ "), 0),
     });
-
-    // Other predefined counter styles defined in CSS Counter Styles Module Level 3
-    // https://drafts.csswg.org/css-counter-styles/#predefined-counters
-    {
-      this.define("decimal-leading-zero", {
-        system: new CssCascade.CascadeValue(
-          new Css.SpaceList([Css.getName("extends"), Css.getName("decimal")]),
-          0,
-        ),
-        pad: new CssCascade.CascadeValue(
-          new Css.SpaceList([new Css.Int(2), new Css.Str("0")]),
-          0,
-        ),
-      });
-      // ...
-      this.define("cjk-decimal", {
-        system: new CssCascade.CascadeValue(Css.getName("numeric"), 0),
-        range: new CssCascade.CascadeValue(
-          new Css.SpaceList([new Css.Int(0), Css.getName("infinite")]),
-          0,
-        ),
-        symbols: new CssCascade.CascadeValue(
-          new Css.SpaceList([
-            new Css.Str("\u3007"),
-            new Css.Str("\u4E00"),
-            new Css.Str("\u4E8C"),
-            new Css.Str("\u4E09"),
-            new Css.Str("\u56DB"),
-            new Css.Str("\u4E94"),
-            new Css.Str("\u516D"),
-            new Css.Str("\u4E03"),
-            new Css.Str("\u516B"),
-            new Css.Str("\u4E5D"),
-          ]),
-          0,
-        ),
-        suffix: new CssCascade.CascadeValue(new Css.Str("\u3001"), 0),
-      });
-      // ...
-    }
   }
 
   define(name: string, properties: CssCascade.ElementStyle) {
@@ -1182,7 +1142,14 @@ export class CounterStyleStore {
     return this.#store.get(name) ?? null;
   }
 
-  format(name: string, value: number): string | null {
-    return this._resolve(name)?.format(value) ?? null;
+  /**
+   * Format a counter value using the specified counter style.
+   * @see https://drafts.csswg.org/css-counter-styles/
+   */
+  format(name: string, value: number): string {
+    return (
+      this._resolve(name)?.format(value) ??
+      this._resolve("decimal")!.format(value)
+    );
   }
 }

@@ -4,12 +4,21 @@
     <meta charset="UTF-8" />
     <title>@counter-style rule</title>
     <style>
-      @counter-style thumbs {
-        system: cyclic;
-        symbols: "\1F44D";
+      @counter-style emoji {
+        system: symbolic;
+        symbols: "1️⃣" "2️⃣" "3️⃣";
       }
       ol {
-        list-style-type: thumbs;
+        /* not working yet */
+        /* list-style-type: emoji; */
+        list-style: none;
+        counter-reset: li 0;
+      }
+      li {
+        counter-increment: li;
+      }
+      li::before {
+        content: counter(li, emoji) ". ";
       }
     </style>
   </head>
