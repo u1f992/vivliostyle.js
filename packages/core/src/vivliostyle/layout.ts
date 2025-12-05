@@ -2359,12 +2359,14 @@ export class Column extends VtreeImpl.Container implements Layout.Column {
       orphans = 1;
     } else {
       // Get widows/orphans settings from the block element
+      const widowsVal = block.inheritedProps["widows"];
+      const orphansVal = block.inheritedProps["orphans"];
       widows = Math.max(
-        ((block.inheritedProps["widows"] as number) || 2) - 0,
+        (widowsVal instanceof Css.Int ? widowsVal.num : 2) - 0,
         1,
       );
       orphans = Math.max(
-        ((block.inheritedProps["orphans"] as number) || 2) - 0,
+        (orphansVal instanceof Css.Int ? orphansVal.num : 2) - 0,
         1,
       );
     }

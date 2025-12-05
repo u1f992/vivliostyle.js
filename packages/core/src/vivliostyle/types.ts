@@ -1287,7 +1287,7 @@ export namespace Vtree {
     breakAfter: string | null;
     viewNode: Node;
     clearSpacer: Node;
-    inheritedProps: { [key: string]: number | string | Css.Val };
+    inheritedProps: { [key: string]: Css.Val };
     vertical: boolean;
     direction: string;
     firstPseudo: FirstPseudo;

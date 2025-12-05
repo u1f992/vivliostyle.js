@@ -596,7 +596,7 @@ export class NodeContext implements Vtree.NodeContext {
   breakAfter: string | null = null;
   viewNode: Node = null;
   clearSpacer: Node = null;
-  inheritedProps: { [key: string]: number | string | Css.Val };
+  inheritedProps: { [key: string]: Css.Val };
   vertical: boolean;
   direction: string;
   firstPseudo: FirstPseudo;

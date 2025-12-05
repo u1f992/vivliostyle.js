@@ -696,23 +696,7 @@ export class ViewFactory
         if (value) {
           if (Css.isDefaultingValue(value)) {
             if (value === Css.ident.initial) {
-              props[name] = undefined;
-            }
-          } else if (value instanceof Css.Int) {
-            props[name] = (value as Css.Int).num;
-          } else if (value instanceof Css.Ident) {
-            props[name] = (value as Css.Ident).name;
-          } else if (value instanceof Css.Numeric) {
-            const numericVal = value as Css.Numeric;
-            switch (numericVal.unit) {
-              case "dpi":
-              case "dpcm":
-              case "dppx":
-                props[name] =
-                  numericVal.num * Exprs.defaultUnitSizes[numericVal.unit];
-                break;
-              default:
-                props[name] = value;
+              delete props[name];
             }
           } else {
             props[name] = value;
@@ -1332,9 +1316,13 @@ export class ViewFactory
         ) {
           initIFrame(result as HTMLIFrameElement);
         }
-        const imageResolution = this.nodeContext.inheritedProps[
-          "image-resolution"
-        ] as number | undefined;
+        const imageResolutionVal =
+          this.nodeContext.inheritedProps["image-resolution"];
+        const imageResolution =
+          imageResolutionVal instanceof Css.Numeric
+            ? imageResolutionVal.num *
+              Exprs.defaultUnitSizes[imageResolutionVal.unit]
+            : undefined;
         const images: {
           image: HTMLElement;
           element: HTMLElement;
