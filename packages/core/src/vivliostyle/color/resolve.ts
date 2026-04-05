@@ -10,7 +10,16 @@ import * as Css from "../css";
 import { SRGBValue } from "./color-store/srgb-value";
 import type { ColorEntry } from "./color-store/color-entry";
 import { hslToSrgb, hwbToSrgb, deviceCmykToSrgbNaive } from "./convert";
-import { labToSrgb, oklabToSrgb } from "./lcms";
+import {
+  isLcmsInitialized,
+  labToSrgb,
+  oklabToSrgb,
+  srgbToLab,
+  xyzToSrgb,
+  transformColor,
+  getSrgbProfile,
+  getLcms,
+} from "./lcms";
 import { NAMED_COLORS } from "./named-colors-table";
 
 import {
@@ -255,6 +264,67 @@ export function colorToSrgbFloat(color: Color): [number, number, number] {
       const k = numVal(vals[3]!);
       return deviceCmykToSrgbNaive(c, m, y, k);
     }
+
+    // color() function — color(srgb ...), color(display-p3 ...), color(xyz ...), etc.
+    if (
+      color instanceof ColorFn ||
+      (color instanceof Css.Func && color.name === "color")
+    ) {
+      let offset = 0;
+      if (vals[0] instanceof Css.Ident && vals[0].name === "from") offset = 2;
+      const spaceIdent = vals[offset];
+      if (spaceIdent instanceof Css.Ident) {
+        const space = spaceIdent.name.toLowerCase();
+        const c1 = numVal(vals[offset + 1]!);
+        const c2 = numVal(vals[offset + 2]!);
+        const c3 = numVal(vals[offset + 3]!);
+
+        if (space === "srgb") {
+          return [c1, c2, c3];
+        }
+
+        // Non-sRGB predefined spaces need lcms
+        if (isLcmsInitialized()) {
+          const lcms = getLcms();
+          const srgb = getSrgbProfile();
+
+          if (space === "xyz" || space === "xyz-d65") {
+            return xyzToSrgb(c1, c2, c3) as [number, number, number];
+          }
+          if (space === "xyz-d50") {
+            // XYZ D50 — use lcms XYZ profile (which is D50 in ICC PCS)
+            const result = transformColor(
+              [c1, c2, c3],
+              (() => {
+                const p = lcms.createXYZProfile();
+                return p!;
+              })(),
+              lcms.TYPE_XYZ_DBL,
+              srgb,
+              lcms.TYPE_RGB_DBL,
+              "xyz-d50->srgb",
+            );
+            return [result[0]!, result[1]!, result[2]!];
+          }
+          // display-p3, a98-rgb, prophoto-rgb, rec2020, srgb-linear
+          // These need ICC profiles loaded — fall through to sRGB approximation
+        }
+
+        // Fallback: treat as sRGB (lossy but non-crashing)
+        return [c1, c2, c3];
+      }
+    }
+
+    // Generic color function fallback
+    if (color.name === "rgb" || color.name === "rgba") {
+      let offset = 0;
+      if (vals[0] instanceof Css.Ident && vals[0].name === "from") offset = 2;
+      return [
+        numVal(vals[offset]!),
+        numVal(vals[offset + 1]!),
+        numVal(vals[offset + 2]!),
+      ];
+    }
   }
 
   // Fallback
@@ -293,11 +363,22 @@ export function colorToColorEntry(color: Color): ColorEntry {
 
   // OKLab → convert to CIE Lab for PDF /Lab
   if (color instanceof Oklab) {
-    const [r, g, b] = colorToSrgbFloat(color);
-    // Re-convert from sRGB to Lab for the entry
-    // (This is approximate — for full accuracy, use lcms oklab→lab directly)
-    const lab = labToSrgb(r, g, b); // This is wrong; we need srgbToLab
-    return { type: "Lab", L: lab[0]!, a: lab[1]!, b: lab[2]! };
+    if (isLcmsInitialized()) {
+      const [r, g, b] = colorToSrgbFloat(color);
+      const lab = srgbToLab(r, g, b);
+      return { type: "Lab", L: lab[0]!, a: lab[1]!, b: lab[2]! };
+    }
+    return { type: "DeviceRGB" }; // fallback if lcms not ready
+  }
+
+  // OKLCH → CIE Lab for PDF /Lab
+  if (color instanceof Oklch) {
+    if (isLcmsInitialized()) {
+      const [r, g, b] = colorToSrgbFloat(color);
+      const lab = srgbToLab(r, g, b);
+      return { type: "Lab", L: lab[0]!, a: lab[1]!, b: lab[2]! };
+    }
+    return { type: "DeviceRGB" };
   }
 
   // LCH → CIE Lab
@@ -322,6 +403,51 @@ export function colorToColorEntry(color: Color): ColorEntry {
       y: Math.round(numVal(vals[2]!) * 10000),
       k: Math.round(numVal(vals[3]!) * 10000),
     };
+  }
+
+  // color() function with predefined color spaces → ICCBased
+  if (color instanceof Css.Func && color.name === "color") {
+    const vals = extractFuncValues(color);
+    let offset = 0;
+    if (vals[0] instanceof Css.Ident && vals[0].name === "from") offset = 2;
+    const spaceIdent = vals[offset];
+    if (spaceIdent instanceof Css.Ident) {
+      const space = spaceIdent.name.toLowerCase();
+      if (space === "srgb") {
+        return { type: "DeviceRGB" };
+      }
+      // Predefined ICC-based spaces
+      const components = [
+        numVal(vals[offset + 1]!),
+        numVal(vals[offset + 2]!),
+        numVal(vals[offset + 3]!),
+      ];
+      // Known predefined profile URLs (placeholder — to be resolved via bundled profiles)
+      const profileMap: Record<string, string> = {
+        "srgb-linear": "urn:vivliostyle:icc:srgb-linear",
+        "display-p3": "urn:vivliostyle:icc:display-p3",
+        "a98-rgb": "urn:vivliostyle:icc:a98-rgb",
+        "prophoto-rgb": "urn:vivliostyle:icc:prophoto-rgb",
+        rec2020: "urn:vivliostyle:icc:rec2020",
+      };
+      const xyzSpaces = ["xyz", "xyz-d50", "xyz-d65"];
+
+      if (space in profileMap) {
+        return {
+          type: "ICCBased",
+          src: profileMap[space],
+          components,
+        };
+      }
+      if (xyzSpaces.includes(space)) {
+        return {
+          type: "ICCBased",
+          src: `urn:vivliostyle:icc:${space}`,
+          alternate: "Lab" as const,
+          components,
+        };
+      }
+    }
   }
 
   // Fallback: DeviceRGB

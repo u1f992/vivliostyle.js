@@ -125,6 +125,8 @@ export class ParserHandler implements CssTokenizer.TokenizerHandler {
 
   startCounterStyleRule(name: string): void {}
 
+  startColorProfileRule(name: string): void {}
+
   startFootnoteRule(pseudoelem: string | null): void {}
 
   startViewportRule(): void {}
@@ -328,6 +330,10 @@ export class DispatchParserHandler extends ParserHandler {
     this.slave.startCounterStyleRule(name);
   }
 
+  override startColorProfileRule(name: string): void {
+    this.slave.startColorProfileRule(name);
+  }
+
   override startFootnoteRule(pseudoelem: string | null): void {
     this.slave.startFootnoteRule(pseudoelem);
   }
@@ -475,6 +481,10 @@ export class SlaveParserHandler extends SkippingParserHandler {
 
   override startFontFaceRule(): void {
     this.reportAndSkip("E_CSS_UNEXPECTED_FONT_FACE");
+  }
+
+  override startColorProfileRule(name: string): void {
+    this.reportAndSkip("E_CSS_UNEXPECTED_COLOR_PROFILE");
   }
 
   override startCounterStyleRule(name: string): void {
@@ -2538,6 +2548,21 @@ export class Parser {
                 tokenizer.nthToken(2).type == TokenType.O_BRC
               ) {
                 handler.startCounterStyleRule(tokenizer.nthToken(1).text);
+                tokenizer.consume();
+                tokenizer.consume();
+                tokenizer.consume();
+                this.ruleStack.push(text);
+                handler.startRuleBody();
+                this.inStyleDeclaration = true;
+                continue;
+              }
+              break;
+            case "color-profile":
+              if (
+                tokenizer.nthToken(1).type == TokenType.IDENT &&
+                tokenizer.nthToken(2).type == TokenType.O_BRC
+              ) {
+                handler.startColorProfileRule(tokenizer.nthToken(1).text);
                 tokenizer.consume();
                 tokenizer.consume();
                 tokenizer.consume();
