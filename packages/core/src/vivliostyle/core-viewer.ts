@@ -19,7 +19,7 @@
  */
 import * as AdaptiveViewer from "./adaptive-viewer";
 import * as Base from "./base";
-import * as CmykStore from "./cmyk-store";
+import type { ColorStoreJSON } from "./color/color-store/color-store";
 import * as Constants from "./constants";
 import * as Epub from "./epub";
 import * as Profile from "./profile";
@@ -483,14 +483,14 @@ export class CoreViewer {
   }
 
   /**
-   * Get the CMYK mapping for device-cmyk() colors used in the document.
+   * Get the color store mapping for all tracked colors in the document.
    */
-  getCmykMap(): Record<string, CmykStore.CMYKValueJSON> {
+  getColorStoreMap(): ColorStoreJSON {
     const opfView = this.adaptViewer_?.opfView;
-    if (!opfView?.cmykStore) {
-      return {};
+    if (!opfView?.colorStore) {
+      return { cmykProfile: null, colors: {} };
     }
-    return opfView.cmykStore.toJSON();
+    return opfView.colorStore.toJSON();
   }
 }
 

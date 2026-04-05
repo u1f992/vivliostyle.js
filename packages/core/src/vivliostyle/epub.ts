@@ -21,8 +21,10 @@
 import * as Asserts from "./asserts";
 import * as Base from "./base";
 import * as CFI from "./cfi";
-import * as CmykStore from "./cmyk-store";
-import { ColorStore } from "./color/color-store/color-store";
+import {
+  ColorStore,
+  type ReserveMapEntry,
+} from "./color/color-store/color-store";
 import * as Constants from "./constants";
 import * as Counters from "./counters";
 import * as Css from "./css";
@@ -1447,7 +1449,6 @@ export class OPFView implements Vgen.CustomRendererFactory {
   pref: Exprs.Preferences;
   clientLayout: Vgen.DefaultClientLayout;
   counterStore: Counters.CounterStore;
-  cmykStore: CmykStore.CmykStore;
   colorStore: ColorStore;
   tocAutohide: boolean = false;
   tocVisible: boolean = false;
@@ -1470,16 +1471,15 @@ export class OPFView implements Vgen.CustomRendererFactory {
       p3: number,
       p4: number,
     ) => any,
-    cmykReserveMap?: CmykStore.CmykReserveMapEntry[],
+    cmykReserveMap?: ReserveMapEntry[],
   ) {
     this.pref = Exprs.clonePreferences(pref);
     this.clientLayout = new Vgen.DefaultClientLayout(viewport);
     this.counterStore = new Counters.CounterStore(opf.documentURLTransformer);
-    this.cmykStore = new CmykStore.CmykStore();
-    if (cmykReserveMap?.length) {
-      this.cmykStore.registerCmykReserveMap(cmykReserveMap);
-    }
     this.colorStore = new ColorStore();
+    if (cmykReserveMap?.length) {
+      this.colorStore.registerReserveMap(cmykReserveMap);
+    }
   }
 
   private getPage(position: Position): Vtree.Page {
@@ -3120,7 +3120,6 @@ export class OPFView implements Vgen.CustomRendererFactory {
         pageNumberOffset,
         this.opf.documentURLTransformer,
         this.counterStore,
-        this.cmykStore,
         this.colorStore,
         this.opf.pageProgression,
         isVersoFirstPage,
@@ -3217,7 +3216,6 @@ export class OPFView implements Vgen.CustomRendererFactory {
         opf.fallbackMap,
         opf.documentURLTransformer,
         this.counterStore,
-        this.cmykStore,
         this.colorStore,
       );
     }

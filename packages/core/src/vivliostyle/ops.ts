@@ -24,7 +24,6 @@ import "./table";
 import * as Asserts from "./asserts";
 import * as Base from "./base";
 import * as Break from "./break";
-import * as CmykStore from "./cmyk-store";
 import { ColorStore } from "./color/color-store/color-store";
 import { initLcms } from "./color/lcms";
 import * as Columns from "./columns";
@@ -336,7 +335,6 @@ export class StyleInstance
     public readonly pageNumberOffset: number,
     public readonly documentURLTransformer: Base.DocumentURLTransformer,
     public readonly counterStore: Counters.CounterStore,
-    public readonly cmykStore: CmykStore.CmykStore,
     public readonly colorStore: ColorStore,
     pageProgression?: Constants.PageProgression,
     isVersoFirstPage?: boolean,
@@ -395,7 +393,6 @@ export class StyleInstance
           counterListener,
           counterResolver,
           this.style.counterStyleStore,
-          this.cmykStore,
           this.colorStore,
         );
         counterResolver.setStyler(this.styler);
@@ -426,7 +423,6 @@ export class StyleInstance
           counterResolver,
           this.lang,
           this.style.counterStyleStore,
-          this.cmykStore,
           this.colorStore,
         );
 
@@ -546,7 +542,6 @@ export class StyleInstance
         counterListener,
         counterResolver,
         style.counterStyleStore,
-        this.cmykStore,
         this.colorStore,
       );
       this.stylerMap[xmldoc.url] = styler;

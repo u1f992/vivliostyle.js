@@ -22,7 +22,6 @@
 import * as CounterStyle from "./counter-style";
 import * as Css from "./css";
 import * as CssTokenizer from "./css-tokenizer";
-import * as CmykStore from "./cmyk-store";
 import * as ColorParser from "./color/color-parser";
 import * as Base from "./base";
 import { ValidationTxt } from "./assets";

@@ -23,6 +23,41 @@ export interface ColorStoreJSON {
   colors: Record<string, ColorEntry>;
 }
 
+/**
+ * A reserve map entry: sRGB key (integer triple) → ColorEntry.
+ * Used to pre-populate the ColorStore with known color mappings.
+ */
+export type ReserveMapEntry = [{ r: number; g: number; b: number }, ColorEntry];
+
+export function isValidReserveMap(data: unknown): data is ReserveMapEntry[] {
+  if (!Array.isArray(data)) {
+    return false;
+  }
+  return data.every((entry) => {
+    if (!Array.isArray(entry) || entry.length !== 2) {
+      return false;
+    }
+    const [rgb, colorEntry] = entry;
+    if (
+      !rgb ||
+      typeof rgb !== "object" ||
+      Array.isArray(rgb) ||
+      !colorEntry ||
+      typeof colorEntry !== "object" ||
+      Array.isArray(colorEntry)
+    ) {
+      return false;
+    }
+    const rgbObj = rgb as Record<string, unknown>;
+    return (
+      Number.isFinite(rgbObj.r) &&
+      Number.isFinite(rgbObj.g) &&
+      Number.isFinite(rgbObj.b) &&
+      typeof (colorEntry as Record<string, unknown>).type === "string"
+    );
+  });
+}
+
 export class ColorStore {
   #map = new Map<string, StoreEntry>();
   #cmykProfile: string | null = null;
@@ -66,6 +101,17 @@ export class ColorStore {
 
     // Key taken (locked or not) — find nearby slot
     return this.#findAvailableSlot(srgb, entry);
+  }
+
+  /**
+   * Pre-populate the store with known color mappings.
+   * Reserved entries are registered as non-RGB (they can be evicted by RGB direct colors).
+   */
+  registerReserveMap(entries: ReserveMapEntry[]): void {
+    for (const [rgb, entry] of entries) {
+      const srgb = SRGBValue.fromInt(rgb.r, rgb.g, rgb.b);
+      this.#map.set(srgb.toKey(), { entry, locked: false });
+    }
   }
 
   toJSON(): ColorStoreJSON {

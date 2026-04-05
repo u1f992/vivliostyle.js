@@ -20,7 +20,6 @@
  */
 import * as Asserts from "./asserts";
 import * as Base from "./base";
-import * as CmykStore from "./cmyk-store";
 import { ColorStore } from "./color/color-store/color-store";
 import { ColorFilterVisitor } from "./color/color-filter-visitor";
 import { ColorResolverVisitor } from "./color/color-resolver";
@@ -3090,7 +3089,6 @@ export class Cascade {
     counterResolver: CounterResolver,
     lang,
     counterStyleStore: CounterStyle.CounterStyleStore,
-    cmykStore: CmykStore.CmykStore,
     colorStore: ColorStore,
   ): CascadeInstance {
     return new CascadeInstance(
@@ -3100,7 +3098,6 @@ export class Cascade {
       counterResolver,
       lang,
       counterStyleStore,
-      cmykStore,
       colorStore,
     );
   }
@@ -3162,7 +3159,6 @@ export class CascadeInstance {
     public readonly counterResolver: CounterResolver,
     lang: string,
     public readonly counterStyleStore: CounterStyle.CounterStyleStore,
-    public readonly cmykStore: CmykStore.CmykStore,
     public readonly colorStore: ColorStore,
   ) {
     this.code = cascade;
@@ -4187,50 +4183,6 @@ export class CascadeInstance {
         const cascVal = getProp(elementStyle, name);
         const value = cascVal.value.visit(visitor);
         if (value !== cascVal.value) {
-          elementStyle[name] = new CascadeValue(value, cascVal.priority);
-        }
-      }
-    }
-  }
-
-  applyCmykFilter(elementStyle: ElementStyle, element?: Element): void {
-    const visitor = new CmykStore.CmykFilterVisitor(this.cmykStore);
-    this.applyCmykFilterInternal(elementStyle, visitor, "");
-    if (element) {
-      const conversions = visitor.getConversions();
-      if (conversions) {
-        element.setAttribute(
-          "data-viv-device-cmyk",
-          JSON.stringify(conversions),
-        );
-      }
-    }
-  }
-
-  private applyCmykFilterInternal(
-    elementStyle: ElementStyle,
-    visitor: CmykStore.CmykFilterVisitor,
-    pseudoPrefix: string,
-  ): void {
-    for (const name in elementStyle) {
-      if (isMapName(name)) {
-        const pseudoMap = getStyleMap(elementStyle, name);
-        for (const pseudoName in pseudoMap) {
-          this.applyCmykFilterInternal(
-            pseudoMap[pseudoName],
-            visitor,
-            `::${pseudoName}:`,
-          );
-        }
-      } else if (isPropName(name) && !Css.isCustomPropName(name)) {
-        const cascVal = getProp(elementStyle, name);
-        const originalValue = cascVal.value.toString();
-        visitor.reset();
-        const value = cascVal.value.visit(visitor);
-        if (value !== cascVal.value) {
-          if (visitor.hadDeviceCmyk()) {
-            visitor.recordConversion(pseudoPrefix + name, originalValue);
-          }
           elementStyle[name] = new CascadeValue(value, cascVal.priority);
         }
       }

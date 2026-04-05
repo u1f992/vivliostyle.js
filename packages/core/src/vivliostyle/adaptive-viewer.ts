@@ -20,7 +20,10 @@
  */
 import * as Asserts from "./asserts";
 import * as Base from "./base";
-import * as CmykStore from "./cmyk-store";
+import {
+  isValidReserveMap,
+  type ReserveMapEntry,
+} from "./color/color-store/color-store";
 import * as Constants from "./constants";
 import * as Epub from "./epub";
 import * as Exprs from "./exprs";
@@ -106,7 +109,7 @@ export class AdaptiveViewer {
   // force relayout
   viewport: Vgen.Viewport | null;
   opfView: Epub.OPFView;
-  cmykReserveMap: CmykStore.CmykReserveMapEntry[] | undefined;
+  cmykReserveMap: ReserveMapEntry[] | undefined;
   cmykReserveMapUrl: string | undefined;
 
   constructor(
@@ -827,7 +830,7 @@ export class AdaptiveViewer {
     );
     const frame: Task.Frame<boolean> = Task.newFrame("loadCmykReserveMap");
     store.loadAsJSON(resolvedUrl).then((data) => {
-      if (CmykStore.isValidCmykReserveMap(data)) {
+      if (isValidReserveMap(data)) {
         this.cmykReserveMap = data;
       } else {
         Logging.logger.warn("Invalid cmykReserveMap data, ignoring");
