@@ -15,6 +15,10 @@ export async function initLcms(): Promise<MainModule> {
   return lcmsModule;
 }
 
+export function isLcmsInitialized(): boolean {
+  return lcmsModule !== null;
+}
+
 export function getLcms(): MainModule {
   if (lcmsModule === null) {
     throw new Error("lcms not initialized. Call initLcms() first.");

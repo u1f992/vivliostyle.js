@@ -56,6 +56,63 @@ export function hwbToSrgb(
 }
 
 /**
+ * sRGB to HSL conversion.
+ * @see https://www.w3.org/TR/2026/CRD-css-color-4-20260331/#rgb-to-hsl
+ *
+ * @param r - Red (0..1)
+ * @param g - Green (0..1)
+ * @param b - Blue (0..1)
+ * @returns [h, s, l] with h in degrees (0..360), s and l in 0..100
+ */
+export function srgbToHsl(
+  r: number,
+  g: number,
+  b: number,
+): [number, number, number] {
+  const max = Math.max(r, g, b);
+  const min = Math.min(r, g, b);
+  const l = (max + min) / 2;
+  const d = max - min;
+
+  if (d === 0) {
+    return [0, 0, l * 100];
+  }
+
+  const s = l <= 0.5 ? d / (max + min) : d / (2 - max - min);
+
+  let h: number;
+  if (max === r) {
+    h = ((g - b) / d + (g < b ? 6 : 0)) * 60;
+  } else if (max === g) {
+    h = ((b - r) / d + 2) * 60;
+  } else {
+    h = ((r - g) / d + 4) * 60;
+  }
+
+  return [h, s * 100, l * 100];
+}
+
+/**
+ * sRGB to HWB conversion.
+ * @see https://www.w3.org/TR/2026/CRD-css-color-4-20260331/#rgb-to-hwb
+ *
+ * @param r - Red (0..1)
+ * @param g - Green (0..1)
+ * @param b - Blue (0..1)
+ * @returns [h, w, b] with h in degrees (0..360), w and b in 0..100
+ */
+export function srgbToHwb(
+  r: number,
+  g: number,
+  b: number,
+): [number, number, number] {
+  const [h] = srgbToHsl(r, g, b);
+  const w = Math.min(r, g, b);
+  const bl = 1 - Math.max(r, g, b);
+  return [h, w * 100, bl * 100];
+}
+
+/**
  * device-cmyk() naive conversion to sRGB.
  * @see https://www.w3.org/TR/2026/WD-css-color-5-20260325/#cmyk-rgb
  *
