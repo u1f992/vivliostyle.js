@@ -1,0 +1,3 @@
+[submodule "packages/lcms/Little-CMS"]
+	path = packages/lcms/Little-CMS
+	url = https://github.com/mm2/Little-CMS.git
