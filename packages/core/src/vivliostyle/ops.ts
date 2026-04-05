@@ -471,8 +471,8 @@ export class StyleInstance
       // Calculate calc()
       this.styler.cascade.applyCalcFilter(pageStyle, this.styler.context);
 
-      // Convert device-cmyk() to color(srgb ...)
-      this.styler.cascade.applyCmykFilter(pageStyle);
+      // Convert all color values to color(srgb ...)
+      this.styler.cascade.applyColorFilter(pageStyle);
 
       const pageSizeAndBleed = CssPage.evaluatePageSizeAndBleed(
         CssPage.resolvePageSizeAndBleed(pageStyle),
@@ -2466,8 +2466,8 @@ export class StyleInstance
     // Calculate calc()
     this.styler.cascade.applyCalcFilter(cascadedPageStyle, this.styler.context);
 
-    // Convert device-cmyk() to color(srgb ...)
-    this.styler.cascade.applyCmykFilter(cascadedPageStyle);
+    // Convert all color values to color(srgb ...)
+    this.styler.cascade.applyColorFilter(cascadedPageStyle);
 
     if (!isTocBox) {
       const isLeftPage = new Exprs.Named(this.style.pageScope, "left-page");

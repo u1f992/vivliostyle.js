@@ -23,6 +23,7 @@ import * as Base from "./base";
 import * as CmykStore from "./cmyk-store";
 import { ColorStore } from "./color/color-store/color-store";
 import { ColorFilterVisitor } from "./color/color-filter-visitor";
+import { ColorResolverVisitor } from "./color/color-resolver";
 import * as CounterStyle from "./counter-style";
 import * as Css from "./css";
 import * as CssParser from "./css-parser";
@@ -4237,6 +4238,9 @@ export class CascadeInstance {
   }
 
   applyColorFilter(elementStyle: ElementStyle, element?: Element): void {
+    // Pass 1: Resolve dependent color values (contrast-color, light-dark, color-mix)
+    this.applyColorResolverInternal(elementStyle);
+    // Pass 2: Convert all colors to color(srgb) and register in ColorStore
     const visitor = new ColorFilterVisitor(this.colorStore);
     this.applyColorFilterInternal(elementStyle, visitor, "");
     if (element) {
@@ -4269,6 +4273,24 @@ export class CascadeInstance {
         const value = cascVal.value.visit(visitor);
         if (value !== cascVal.value) {
           visitor.recordConversion(pseudoPrefix + name, originalValue);
+          elementStyle[name] = new CascadeValue(value, cascVal.priority);
+        }
+      }
+    }
+  }
+
+  private applyColorResolverInternal(elementStyle: ElementStyle): void {
+    const resolver = new ColorResolverVisitor();
+    for (const name in elementStyle) {
+      if (isMapName(name)) {
+        const pseudoMap = getStyleMap(elementStyle, name);
+        for (const pseudoName in pseudoMap) {
+          this.applyColorResolverInternal(pseudoMap[pseudoName]);
+        }
+      } else if (isPropName(name) && !Css.isCustomPropName(name)) {
+        const cascVal = getProp(elementStyle, name);
+        const value = cascVal.value.visit(resolver);
+        if (value !== cascVal.value) {
           elementStyle[name] = new CascadeValue(value, cascVal.priority);
         }
       }
