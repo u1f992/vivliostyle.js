@@ -20,6 +20,7 @@
  */
 import * as Base from "./base";
 import * as CmykStore from "./cmyk-store";
+import { ColorStore } from "./color/color-store/color-store";
 import * as Counters from "./counters";
 import * as Css from "./css";
 import * as Exprs from "./exprs";
@@ -111,6 +112,7 @@ export class TOCView implements Vgen.CustomRendererFactory {
     public readonly documentURLTransformer: Base.DocumentURLTransformer,
     public readonly counterStore: Counters.CounterStore,
     public readonly cmykStore: CmykStore.CmykStore,
+    public readonly colorStore: ColorStore,
   ) {
     this.pref = Exprs.clonePreferences(pref);
     this.pref.spreadView = false; // No spred view for TOC box
@@ -300,6 +302,7 @@ export class TOCView implements Vgen.CustomRendererFactory {
         this.documentURLTransformer,
         this.counterStore,
         this.cmykStore,
+        this.colorStore,
       );
       this.instance = instance;
       instance.pref = this.pref;

@@ -21,6 +21,8 @@
 import * as Asserts from "./asserts";
 import * as Base from "./base";
 import * as CmykStore from "./cmyk-store";
+import { ColorStore } from "./color/color-store/color-store";
+import { ColorFilterVisitor } from "./color/color-filter-visitor";
 import * as CounterStyle from "./counter-style";
 import * as Css from "./css";
 import * as CssParser from "./css-parser";
@@ -3088,6 +3090,7 @@ export class Cascade {
     lang,
     counterStyleStore: CounterStyle.CounterStyleStore,
     cmykStore: CmykStore.CmykStore,
+    colorStore: ColorStore,
   ): CascadeInstance {
     return new CascadeInstance(
       this,
@@ -3097,6 +3100,7 @@ export class Cascade {
       lang,
       counterStyleStore,
       cmykStore,
+      colorStore,
     );
   }
 
@@ -3158,6 +3162,7 @@ export class CascadeInstance {
     lang: string,
     public readonly counterStyleStore: CounterStyle.CounterStyleStore,
     public readonly cmykStore: CmykStore.CmykStore,
+    public readonly colorStore: ColorStore,
   ) {
     this.code = cascade;
     this.quotes = [
@@ -3627,8 +3632,8 @@ export class CascadeInstance {
     // Calculate calc()
     this.applyCalcFilter(this.currentStyle, this.context);
 
-    // Convert device-cmyk() to color(srgb ...)
-    this.applyCmykFilter(this.currentStyle, this.currentElement);
+    // Convert all color values to color(srgb ...)
+    this.applyColorFilter(this.currentStyle, this.currentElement);
 
     this.applyAttrFilter(element);
     const quotesCasc = baseStyle["quotes"] as CascadeValue;
@@ -4225,6 +4230,45 @@ export class CascadeInstance {
           if (visitor.hadDeviceCmyk()) {
             visitor.recordConversion(pseudoPrefix + name, originalValue);
           }
+          elementStyle[name] = new CascadeValue(value, cascVal.priority);
+        }
+      }
+    }
+  }
+
+  applyColorFilter(elementStyle: ElementStyle, element?: Element): void {
+    const visitor = new ColorFilterVisitor(this.colorStore);
+    this.applyColorFilterInternal(elementStyle, visitor, "");
+    if (element) {
+      const json = this.colorStore.toJSON();
+      if (Object.keys(json.colors).length > 0) {
+        element.setAttribute("data-viv-color-store", JSON.stringify(json));
+      }
+    }
+  }
+
+  private applyColorFilterInternal(
+    elementStyle: ElementStyle,
+    visitor: ColorFilterVisitor,
+    pseudoPrefix: string,
+  ): void {
+    for (const name in elementStyle) {
+      if (isMapName(name)) {
+        const pseudoMap = getStyleMap(elementStyle, name);
+        for (const pseudoName in pseudoMap) {
+          this.applyColorFilterInternal(
+            pseudoMap[pseudoName],
+            visitor,
+            `::${pseudoName}:`,
+          );
+        }
+      } else if (isPropName(name) && !Css.isCustomPropName(name)) {
+        const cascVal = getProp(elementStyle, name);
+        const originalValue = cascVal.value.toString();
+        visitor.reset(name);
+        const value = cascVal.value.visit(visitor);
+        if (value !== cascVal.value) {
+          visitor.recordConversion(pseudoPrefix + name, originalValue);
           elementStyle[name] = new CascadeValue(value, cascVal.priority);
         }
       }

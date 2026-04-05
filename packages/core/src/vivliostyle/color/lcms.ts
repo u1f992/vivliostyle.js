@@ -1,24 +1,25 @@
-import createLcmsModule, {
-  type MainModule,
-  type Profile,
-  type Transform,
-} from "@vivliostyle/lcms/lib/lcms.js";
+type MainModule = import("@vivliostyle/lcms/lib/lcms.js").MainModule;
+type Profile = import("@vivliostyle/lcms/lib/lcms.js").Profile;
+type Transform = import("@vivliostyle/lcms/lib/lcms.js").Transform;
 
-let module: MainModule | null = null;
+let lcmsModule: MainModule | null = null;
 
 export async function initLcms(): Promise<MainModule> {
-  if (module !== null) {
-    return module;
+  if (lcmsModule !== null) {
+    return lcmsModule;
   }
-  module = await createLcmsModule();
-  return module;
+  const { default: createLcmsModule } = await import(
+    "@vivliostyle/lcms/lib/lcms.js"
+  );
+  lcmsModule = await createLcmsModule();
+  return lcmsModule;
 }
 
 export function getLcms(): MainModule {
-  if (module === null) {
+  if (lcmsModule === null) {
     throw new Error("lcms not initialized. Call initLcms() first.");
   }
-  return module;
+  return lcmsModule;
 }
 
 // Built-in profile cache

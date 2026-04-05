@@ -23,6 +23,7 @@ import * as CounterStyle from "./counter-style";
 import * as Css from "./css";
 import * as CssTokenizer from "./css-tokenizer";
 import * as CmykStore from "./cmyk-store";
+import * as ColorParser from "./color/color-parser";
 import * as Base from "./base";
 import { ValidationTxt } from "./assets";
 import { TokenType } from "./css-tokenizer";
@@ -427,7 +428,7 @@ export class PrimitiveValidator extends PropertyValidator {
       return ident;
     }
     if (this.allowed & ALLOW_COLOR) {
-      if (CSS.supports("color", ident.name)) {
+      if (ColorParser.isValidColorIdent(ident.name)) {
         return ident;
       }
     }
@@ -513,24 +514,12 @@ export class PrimitiveValidator extends PropertyValidator {
 
   override visitFunc(func: Css.Func): Css.Val {
     if (this.allowed & ALLOW_COLOR) {
-      if (func.name === "device-cmyk" || func.name === "cmyk") {
-        if (
-          CSS.supports("color", "color(srgb 0 0 0)") &&
-          CmykStore.parseDeviceCmyk(func) !== null
-        ) {
-          return func;
-        }
-        return null;
-      }
-      if (CSS.supports("color", func.toString())) {
+      if (ColorParser.isValidColorFunction(func.name)) {
         return func;
       }
     }
     if (this.allowed & ALLOW_IMAGE) {
-      // CSS.supports() doesn't understand device-cmyk(), so we need to
-      // substitute it with a valid color for structure validation.
-      const tempFunc = func.visit(new CmykStore.CmykFilterVisitor());
-      if (CSS.supports("background-image", tempFunc.toString())) {
+      if (CSS.supports("background-image", func.toString())) {
         return func;
       }
     }

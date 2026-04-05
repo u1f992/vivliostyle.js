@@ -22,6 +22,7 @@ import * as Asserts from "./asserts";
 import * as Base from "./base";
 import * as CFI from "./cfi";
 import * as CmykStore from "./cmyk-store";
+import { ColorStore } from "./color/color-store/color-store";
 import * as Constants from "./constants";
 import * as Counters from "./counters";
 import * as Css from "./css";
@@ -1447,6 +1448,7 @@ export class OPFView implements Vgen.CustomRendererFactory {
   clientLayout: Vgen.DefaultClientLayout;
   counterStore: Counters.CounterStore;
   cmykStore: CmykStore.CmykStore;
+  colorStore: ColorStore;
   tocAutohide: boolean = false;
   tocVisible: boolean = false;
   tocView?: Toc.TOCView;
@@ -1477,6 +1479,7 @@ export class OPFView implements Vgen.CustomRendererFactory {
     if (cmykReserveMap?.length) {
       this.cmykStore.registerCmykReserveMap(cmykReserveMap);
     }
+    this.colorStore = new ColorStore();
   }
 
   private getPage(position: Position): Vtree.Page {
@@ -3118,6 +3121,7 @@ export class OPFView implements Vgen.CustomRendererFactory {
         this.opf.documentURLTransformer,
         this.counterStore,
         this.cmykStore,
+        this.colorStore,
         this.opf.pageProgression,
         isVersoFirstPage,
       );
@@ -3214,6 +3218,7 @@ export class OPFView implements Vgen.CustomRendererFactory {
         opf.documentURLTransformer,
         this.counterStore,
         this.cmykStore,
+        this.colorStore,
       );
     }
     const viewport = this.viewport;

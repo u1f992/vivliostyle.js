@@ -25,6 +25,7 @@ import * as Asserts from "./asserts";
 import * as Base from "./base";
 import * as Break from "./break";
 import * as CmykStore from "./cmyk-store";
+import { ColorStore } from "./color/color-store/color-store";
 import * as Columns from "./columns";
 import * as Constants from "./constants";
 import * as Counters from "./counters";
@@ -335,6 +336,7 @@ export class StyleInstance
     public readonly documentURLTransformer: Base.DocumentURLTransformer,
     public readonly counterStore: Counters.CounterStore,
     public readonly cmykStore: CmykStore.CmykStore,
+    public readonly colorStore: ColorStore,
     pageProgression?: Constants.PageProgression,
     isVersoFirstPage?: boolean,
   ) {
@@ -387,6 +389,7 @@ export class StyleInstance
       counterResolver,
       this.style.counterStyleStore,
       this.cmykStore,
+      this.colorStore,
     );
     counterResolver.setStyler(this.styler);
     this.styler.resetFlowChunkStream(this);
@@ -416,6 +419,7 @@ export class StyleInstance
       this.lang,
       this.style.counterStyleStore,
       this.cmykStore,
+      this.colorStore,
     );
 
     // Named page type at first page
@@ -533,6 +537,7 @@ export class StyleInstance
         counterResolver,
         style.counterStyleStore,
         this.cmykStore,
+        this.colorStore,
       );
       this.stylerMap[xmldoc.url] = styler;
     }
