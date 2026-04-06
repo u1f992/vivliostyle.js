@@ -60,17 +60,36 @@ function extractAlpha(func: Css.Func): number | null {
     }
   }
 
-  // Legacy syntax: alpha is the 4th comma-separated value
+  // Legacy syntax: alpha is the 4th comma-separated value for rgb/rgba/hsl/hsla
   // (func.values without SpaceList wrapping)
+  // For device-cmyk, alpha is the 5th value (4 CMYK components first)
   const isLegacy =
     func.values.length > 1 || !(func.values[0] instanceof Css.SpaceList);
-  if (isLegacy && func.values.length >= 4) {
-    const alphaVal = func.values[3];
-    if (alphaVal instanceof Css.Num) {
-      return alphaVal.num; // <alpha-value> <number> is 0..1
+  if (isLegacy) {
+    const name = func.name.toLowerCase();
+    let alphaIndex: number | null = null;
+    if (
+      (name === "rgb" ||
+        name === "rgba" ||
+        name === "hsl" ||
+        name === "hsla") &&
+      func.values.length >= 4
+    ) {
+      alphaIndex = 3;
+    } else if (
+      (name === "device-cmyk" || name === "cmyk") &&
+      func.values.length >= 5
+    ) {
+      alphaIndex = 4;
     }
-    if (alphaVal instanceof Css.Numeric && alphaVal.unit === "%") {
-      return alphaVal.num / 100;
+    if (alphaIndex !== null) {
+      const alphaVal = func.values[alphaIndex];
+      if (alphaVal instanceof Css.Num) {
+        return alphaVal.num;
+      }
+      if (alphaVal instanceof Css.Numeric && alphaVal.unit === "%") {
+        return alphaVal.num / 100;
+      }
     }
   }
 
@@ -90,10 +109,28 @@ function extractHexAlpha(hex: string): number | null {
   return null;
 }
 
+/**
+ * Gradient and image function names where we should NOT convert
+ * sRGB-native colors (to preserve browser interpolation behavior),
+ * but MUST convert non-sRGB colors (which browsers don't understand).
+ */
+const IMAGE_FUNCTIONS = new Set([
+  "linear-gradient",
+  "radial-gradient",
+  "conic-gradient",
+  "repeating-linear-gradient",
+  "repeating-radial-gradient",
+  "repeating-conic-gradient",
+  "image",
+  "image-set",
+  "cross-fade",
+]);
+
 export class ColorFilterVisitor extends Css.FilterVisitor {
   readonly #store: ColorStore;
   readonly #conversions = new Map<string, string>();
   #currentProperty: string = "";
+  #insideGradient: boolean = false;
 
   constructor(store: ColorStore) {
     super();
@@ -124,6 +161,13 @@ export class ColorFilterVisitor extends Css.FilterVisitor {
   override visitIdent(ident: Css.Ident): Css.Val {
     const lower = ident.name.toLowerCase();
 
+    // Inside gradients: sRGB-native colors pass through to preserve
+    // browser interpolation. Only non-sRGB colors need conversion,
+    // and those come through visitFunc, not visitIdent.
+    if (this.#insideGradient) {
+      return ident;
+    }
+
     // Named color (always opaque)
     const named = NAMED_COLORS[lower];
     if (named !== undefined) {
@@ -150,6 +194,11 @@ export class ColorFilterVisitor extends Css.FilterVisitor {
   }
 
   override visitHexColor(color: Css.HexColor): Css.Val {
+    // Inside gradients: hex is sRGB-native, pass through
+    if (this.#insideGradient) {
+      return color;
+    }
+
     const hex = color.hex;
     let r: number, g: number, b: number;
 
@@ -168,8 +217,23 @@ export class ColorFilterVisitor extends Css.FilterVisitor {
   }
 
   override visitFunc(func: Css.Func): Css.Val {
+    if (IMAGE_FUNCTIONS.has(func.name.toLowerCase())) {
+      // Gradient/image function: recurse into children to convert
+      // non-sRGB colors (device-cmyk, lab, etc.) but preserve sRGB-native
+      // colors (named, hex, rgb, hsl) via the #insideGradient flag.
+      const saved = this.#insideGradient;
+      this.#insideGradient = true;
+      const result = super.visitFunc(func);
+      this.#insideGradient = saved;
+      return result;
+    }
+
     if (!isValidColorFunction(func.name)) {
-      // Do NOT recurse into non-color functions (e.g. gradients, images).
+      return func;
+    }
+
+    // Inside gradient: sRGB-native color functions pass through
+    if (this.#insideGradient && isRgbDirect(func as any)) {
       return func;
     }
 

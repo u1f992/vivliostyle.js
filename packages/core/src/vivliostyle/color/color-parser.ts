@@ -77,3 +77,51 @@ export function isValidColorIdent(name: string): boolean {
 export function isValidColorFunction(funcName: string): boolean {
   return COLOR_FUNCTIONS.has(funcName.toLowerCase());
 }
+
+/**
+ * Color functions that browsers do NOT understand natively.
+ * These must be substituted before passing to CSS.supports() for image validation.
+ */
+const NON_NATIVE_COLOR_FUNCTIONS = new Set([
+  "device-cmyk",
+  "cmyk",
+  "lab",
+  "lch",
+  "oklab",
+  "oklch",
+  "color-mix",
+  "contrast-color",
+  "light-dark",
+]);
+
+/**
+ * Visitor that substitutes non-native color functions with a valid sRGB placeholder.
+ * Used during validation to allow CSS.supports() to check image function structure
+ * without choking on color functions the browser doesn't understand.
+ */
+import * as Css from "../css";
+
+export class ColorSubstitutionVisitor extends Css.FilterVisitor {
+  private static readonly PLACEHOLDER = new Css.Func("rgb", [
+    new Css.Num(0),
+    new Css.Num(0),
+    new Css.Num(0),
+  ]);
+
+  override visitFunc(func: Css.Func): Css.Val {
+    if (NON_NATIVE_COLOR_FUNCTIONS.has(func.name.toLowerCase())) {
+      return ColorSubstitutionVisitor.PLACEHOLDER;
+    }
+    // For color() function with non-sRGB space, also substitute
+    if (func.name === "color") {
+      const vals =
+        func.values.length === 1 && func.values[0] instanceof Css.SpaceList
+          ? (func.values[0] as Css.SpaceList).values
+          : func.values;
+      if (vals[0] instanceof Css.Ident && vals[0].name !== "srgb") {
+        return ColorSubstitutionVisitor.PLACEHOLDER;
+      }
+    }
+    return super.visitFunc(func);
+  }
+}

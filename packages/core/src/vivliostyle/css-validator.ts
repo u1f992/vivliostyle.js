@@ -23,6 +23,7 @@ import * as CounterStyle from "./counter-style";
 import * as Css from "./css";
 import * as CssTokenizer from "./css-tokenizer";
 import * as ColorParser from "./color/color-parser";
+import { ColorSubstitutionVisitor } from "./color/color-parser";
 import * as Base from "./base";
 import { ValidationTxt } from "./assets";
 import { TokenType } from "./css-tokenizer";
@@ -518,7 +519,11 @@ export class PrimitiveValidator extends PropertyValidator {
       }
     }
     if (this.allowed & ALLOW_IMAGE) {
-      if (CSS.supports("background-image", func.toString())) {
+      // Substitute non-sRGB color functions (device-cmyk, lab, etc.)
+      // with valid sRGB colors before checking CSS.supports, since
+      // browsers don't understand these color functions.
+      const tempFunc = func.visit(new ColorSubstitutionVisitor());
+      if (CSS.supports("background-image", tempFunc.toString())) {
         return func;
       }
     }
