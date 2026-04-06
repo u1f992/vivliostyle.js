@@ -100,6 +100,20 @@ function angleVal(v: Css.Val): number {
 }
 
 /**
+ * Extract a legacy RGB component value (0..255 number or 0..100% percentage).
+ * Returns value in 0..1 range.
+ */
+function legacyRgbVal(v: Css.Val): number {
+  if (v instanceof Css.Num) {
+    return v.num / 255;
+  }
+  if (v instanceof Css.Numeric && v.unit === "%") {
+    return v.num / 100;
+  }
+  return 0;
+}
+
+/**
  * Extract the components from a Css.Func's values.
  * Modern syntax wraps in SpaceList; legacy is comma-separated direct values.
  */
@@ -132,10 +146,16 @@ export function isRgbDirect(color: Color): boolean {
     // System colors are UA-defined sRGB values
     return true;
   }
-  // color(srgb ...) is RGB direct
-  if (color instanceof ColorFn) {
-    const vals = extractFuncValues(color);
-    if (vals[0] instanceof Css.Ident && vals[0].name === "srgb") return true;
+  // Generic Css.Func: check by function name
+  if (color instanceof Css.Func) {
+    const name = color.name.toLowerCase();
+    // rgb, rgba, hsl, hsla, hwb are all sRGB-defined
+    if (["rgb", "rgba", "hsl", "hsla", "hwb"].includes(name)) return true;
+    // color(srgb ...) is RGB direct
+    if (name === "color") {
+      const vals = extractFuncValues(color);
+      if (vals[0] instanceof Css.Ident && vals[0].name === "srgb") return true;
+    }
   }
   return false;
 }
@@ -315,15 +335,116 @@ export function colorToSrgbFloat(color: Color): [number, number, number] {
       }
     }
 
-    // Generic color function fallback
+    // Generic rgb/rgba fallback (handles raw Css.Func from parser)
     if (color.name === "rgb" || color.name === "rgba") {
+      // Detect legacy vs modern: legacy uses comma-separated values
+      // directly in func.values; modern wraps in SpaceList
+      const isModern =
+        color.values.length === 1 && color.values[0] instanceof Css.SpaceList;
       let offset = 0;
       if (vals[0] instanceof Css.Ident && vals[0].name === "from") offset = 2;
-      return [
+
+      if (isModern) {
+        // Modern: values are 0..1 or percentage
+        return [
+          numVal(vals[offset]!),
+          numVal(vals[offset + 1]!),
+          numVal(vals[offset + 2]!),
+        ];
+      } else {
+        // Legacy: <number> values are 0..255, <percentage> is 0..100%
+        return [
+          legacyRgbVal(vals[offset]!),
+          legacyRgbVal(vals[offset + 1]!),
+          legacyRgbVal(vals[offset + 2]!),
+        ];
+      }
+    }
+
+    // Generic hsl/hsla fallback
+    if (color.name === "hsl" || color.name === "hsla") {
+      const isModern =
+        color.values.length === 1 && color.values[0] instanceof Css.SpaceList;
+      let offset = 0;
+      if (vals[0] instanceof Css.Ident && vals[0].name === "from") offset = 2;
+
+      if (isModern) {
+        return hslToSrgb(
+          angleVal(vals[offset]!),
+          numVal(vals[offset + 1]!) * 100,
+          numVal(vals[offset + 2]!) * 100,
+        );
+      } else {
+        // Legacy hsl: hue is angle, s and l are percentages
+        return hslToSrgb(
+          angleVal(vals[offset]!),
+          numVal(vals[offset + 1]!) * 100,
+          numVal(vals[offset + 2]!) * 100,
+        );
+      }
+    }
+
+    // Generic hwb fallback
+    if (color.name === "hwb") {
+      let offset = 0;
+      if (vals[0] instanceof Css.Ident && vals[0].name === "from") offset = 2;
+      return hwbToSrgb(
+        angleVal(vals[offset]!),
+        numVal(vals[offset + 1]!) * 100,
+        numVal(vals[offset + 2]!) * 100,
+      );
+    }
+
+    // Generic lab/oklab/lch/oklch fallback
+    if (color.name === "lab") {
+      let offset = 0;
+      if (vals[0] instanceof Css.Ident && vals[0].name === "from") offset = 2;
+      const result = labToSrgb(
         numVal(vals[offset]!),
         numVal(vals[offset + 1]!),
         numVal(vals[offset + 2]!),
-      ];
+      );
+      return [result[0]!, result[1]!, result[2]!];
+    }
+    if (color.name === "oklab") {
+      let offset = 0;
+      if (vals[0] instanceof Css.Ident && vals[0].name === "from") offset = 2;
+      const result = oklabToSrgb(
+        numVal(vals[offset]!),
+        numVal(vals[offset + 1]!),
+        numVal(vals[offset + 2]!),
+      );
+      return [result[0]!, result[1]!, result[2]!];
+    }
+    if (color.name === "lch") {
+      let offset = 0;
+      if (vals[0] instanceof Css.Ident && vals[0].name === "from") offset = 2;
+      const L = numVal(vals[offset]!);
+      const C = numVal(vals[offset + 1]!);
+      const H = angleVal(vals[offset + 2]!);
+      const hRad = (H * Math.PI) / 180;
+      const result = labToSrgb(L, C * Math.cos(hRad), C * Math.sin(hRad));
+      return [result[0]!, result[1]!, result[2]!];
+    }
+    if (color.name === "oklch") {
+      let offset = 0;
+      if (vals[0] instanceof Css.Ident && vals[0].name === "from") offset = 2;
+      const L = numVal(vals[offset]!);
+      const C = numVal(vals[offset + 1]!);
+      const H = angleVal(vals[offset + 2]!);
+      const hRad = (H * Math.PI) / 180;
+      const result = oklabToSrgb(L, C * Math.cos(hRad), C * Math.sin(hRad));
+      return [result[0]!, result[1]!, result[2]!];
+    }
+
+    // Generic device-cmyk fallback
+    if (color.name === "device-cmyk" || color.name === "cmyk") {
+      return deviceCmykToSrgbNaive(
+        numVal(vals[0]!),
+        numVal(vals[1]!),
+        numVal(vals[2]!),
+        numVal(vals[3]!),
+      );
     }
   }
 

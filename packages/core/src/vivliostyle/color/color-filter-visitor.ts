@@ -47,6 +47,7 @@ function extractAlpha(func: Css.Func): number | null {
       ? (func.values[0] as Css.SpaceList).values
       : func.values;
 
+  // Modern syntax: look for slash separator
   for (let i = 0; i < vals.length; i++) {
     if (vals[i] instanceof Css.Slash && i + 1 < vals.length) {
       const alphaVal = vals[i + 1];
@@ -58,6 +59,21 @@ function extractAlpha(func: Css.Func): number | null {
       }
     }
   }
+
+  // Legacy syntax: alpha is the 4th comma-separated value
+  // (func.values without SpaceList wrapping)
+  const isLegacy =
+    func.values.length > 1 || !(func.values[0] instanceof Css.SpaceList);
+  if (isLegacy && func.values.length >= 4) {
+    const alphaVal = func.values[3];
+    if (alphaVal instanceof Css.Num) {
+      return alphaVal.num; // <alpha-value> <number> is 0..1
+    }
+    if (alphaVal instanceof Css.Numeric && alphaVal.unit === "%") {
+      return alphaVal.num / 100;
+    }
+  }
+
   return null;
 }
 
