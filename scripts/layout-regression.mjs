@@ -7,6 +7,8 @@ import { chromium } from "playwright";
 import pixelmatch from "pixelmatch";
 import { PNG } from "pngjs";
 import yaml from "js-yaml";
+import { createTwoFilesPatch } from "diff";
+import prettier from "prettier";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -31,6 +33,8 @@ const defaults = {
   viewportWidth: 1800,
   viewportHeight: 1800,
   skipScreenshots: false,
+  exportHtml: false,
+  exportHtmlDiff: false,
   actualViewer: "https://vivliostyle.vercel.app/",
   baselineViewer: "https://vivliostyle.org/viewer/",
   actualLabel: "canary",
@@ -140,6 +144,11 @@ function parseArgs(argv) {
       opts.viewportHeight = Number(argv[++i]);
     } else if (a === "--skip-screenshots") {
       opts.skipScreenshots = true;
+    } else if (a === "--export-html") {
+      opts.exportHtml = true;
+    } else if (a === "--export-html-diff") {
+      opts.exportHtmlDiff = true;
+      opts.exportHtml = true;
     } else if (a === "--baseline-viewer") {
       baselineViewerSpec = argv[++i];
     } else if (a === "--actual-viewer") {
@@ -222,6 +231,8 @@ Options:
   --viewport-width <number>  Browser viewport width
   --viewport-height <number> Browser viewport height
   --skip-screenshots         Skip image capture/compare, check page counts only
+  --export-html              Export rendered HTML snapshot for each entry
+  --export-html-diff         Compare prettified rendered HTML and write diff
   --actual-viewer <spec>     Actual viewer: URL, version (v2.35.0 or 2019.11.100),
                              or keyword: canary, stable, dev, prod, git-<branch> (default: canary)
   --baseline-viewer <spec>   Baseline viewer: same format as --actual-viewer (default: stable)
@@ -686,6 +697,7 @@ async function capturePages({
   dir,
   timeoutMs,
   skipScreenshots,
+  exportHtml,
 }) {
   await page.goto(url, { waitUntil: "domcontentloaded", timeout: timeoutMs });
   await waitForViewerReady(page, timeoutMs);
@@ -696,6 +708,12 @@ async function capturePages({
   }
 
   const totalPages = await getTotalPages(page);
+
+  if (exportHtml) {
+    const html = await page.content();
+    const snapshotPath = path.join(dir, `${key}.html`);
+    fs.writeFileSync(snapshotPath, html, "utf8");
+  }
 
   if (!skipScreenshots) {
     const spreadContainer = page.locator(
@@ -744,6 +762,7 @@ async function captureOneSide({
   dir,
   timeoutMs,
   skipScreenshots,
+  exportHtml,
   viewportWidth,
   viewportHeight,
 }) {
@@ -762,6 +781,7 @@ async function captureOneSide({
       dir,
       timeoutMs,
       skipScreenshots,
+      exportHtml,
     });
     return { ok: true, ...captured };
   } catch (err) {
@@ -1262,6 +1282,7 @@ async function main() {
       dir: baselineDir,
       timeoutMs: opts.timeoutMs,
       skipScreenshots: opts.skipScreenshots,
+      exportHtml: opts.exportHtml,
       viewportWidth: opts.viewportWidth,
       viewportHeight: opts.viewportHeight,
     });
@@ -1273,6 +1294,7 @@ async function main() {
       dir: actualDir,
       timeoutMs: opts.timeoutMs,
       skipScreenshots: opts.skipScreenshots,
+      exportHtml: opts.exportHtml,
       viewportWidth: opts.viewportWidth,
       viewportHeight: opts.viewportHeight,
     });
@@ -1379,6 +1401,40 @@ async function main() {
 
     if (diffEntry.pages.length > 0) {
       screenshotMismatches += 1;
+
+      if (opts.exportHtmlDiff) {
+        try {
+          const baselineHtml = fs.readFileSync(
+            path.join(baselineDir, `${slug}.html`),
+            "utf8",
+          );
+          const actualHtml = fs.readFileSync(
+            path.join(actualDir, `${slug}.html`),
+            "utf8",
+          );
+          const formatOpts = { parser: "html", printWidth: 120 };
+          const baselineFormatted = await prettier.format(
+            baselineHtml,
+            formatOpts,
+          );
+          const actualFormatted = await prettier.format(actualHtml, formatOpts);
+          const patch = createTwoFilesPatch(
+            `baseline/${slug}.html`,
+            `actual/${slug}.html`,
+            baselineFormatted,
+            actualFormatted,
+          );
+          // createTwoFilesPatch always returns a header even if identical;
+          // only write when there are actual changes (lines starting with + or -)
+          if (/^[+-][^+-]/m.test(patch)) {
+            fs.writeFileSync(path.join(diffDir, `${slug}.diff`), patch, "utf8");
+          }
+        } catch (error) {
+          console.warn(
+            `  -> skipped HTML diff export for ${slug}: ${error instanceof Error ? error.message : String(error)}`,
+          );
+        }
+      }
     }
 
     if (diffEntry.pageCountMismatch || diffEntry.pages.length > 0) {
