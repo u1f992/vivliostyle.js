@@ -1,12 +1,14 @@
 #!/usr/bin/env node
 
 import fs from "node:fs";
+import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { chromium } from "playwright";
 import pixelmatch from "pixelmatch";
 import { PNG } from "pngjs";
 import yaml from "js-yaml";
+import pLimit from "p-limit";
 import { createTwoFilesPatch } from "diff";
 import prettier from "prettier";
 
@@ -33,6 +35,7 @@ const defaults = {
   viewportWidth: 1800,
   viewportHeight: 1800,
   skipScreenshots: false,
+  concurrency: os.availableParallelism(),
   exportHtml: false,
   exportHtmlDiff: false,
   actualViewer: "https://vivliostyle.vercel.app/",
@@ -144,6 +147,8 @@ function parseArgs(argv) {
       opts.viewportHeight = Number(argv[++i]);
     } else if (a === "--skip-screenshots") {
       opts.skipScreenshots = true;
+    } else if (a === "--concurrency") {
+      opts.concurrency = Number(argv[++i]);
     } else if (a === "--export-html") {
       opts.exportHtml = true;
     } else if (a === "--export-html-diff") {
@@ -204,6 +209,10 @@ function parseArgs(argv) {
   ) {
     throw new Error("--pixel-threshold must be between 0 and 1");
   }
+  if (!Number.isFinite(opts.concurrency) || opts.concurrency < 1) {
+    throw new Error("--concurrency must be a positive integer");
+  }
+  opts.concurrency = Math.floor(opts.concurrency);
   if (!opts.baselineViewer || !opts.actualViewer) {
     throw new Error("--baseline-viewer and --actual-viewer are required");
   }
@@ -231,6 +240,7 @@ Options:
   --viewport-width <number>  Browser viewport width
   --viewport-height <number> Browser viewport height
   --skip-screenshots         Skip image capture/compare, check page counts only
+  --concurrency <number>     Number of entries to capture in parallel (default: os.availableParallelism())
   --export-html              Export rendered HTML snapshot for each entry
   --export-html-diff         Compare prettified rendered HTML and write diff
   --actual-viewer <spec>     Actual viewer: URL, version (v2.35.0 or 2019.11.100),
@@ -1267,37 +1277,47 @@ async function main() {
   let screenshotMismatches = 0;
   let timeoutEntries = 0;
 
-  for (let i = 0; i < targets.length; i++) {
-    const target = targets[i];
+  // Dispatch all captures into a bounded concurrency pool.
+  // Each entry produces a Promise that resolves with [baseline, actual].
+  const limit = pLimit(opts.concurrency);
+  const entryPromises = targets.map((target, i) => {
     const id = String(i + 1).padStart(4, "0");
     const slug = `${id}-${sanitizeName(target.category)}-${sanitizeName(target.title)}`;
+    const captureOpts = {
+      browser,
+      timeoutMs: opts.timeoutMs,
+      skipScreenshots: opts.skipScreenshots,
+      exportHtml: opts.exportHtml,
+      viewportWidth: opts.viewportWidth,
+      viewportHeight: opts.viewportHeight,
+    };
+    const baselineP = limit(() =>
+      captureOneSide({
+        ...captureOpts,
+        url: target.baselineUrl,
+        key: slug,
+        dir: baselineDir,
+      }),
+    );
+    const actualP = limit(() =>
+      captureOneSide({
+        ...captureOpts,
+        url: target.actualUrl,
+        key: slug,
+        dir: actualDir,
+      }),
+    );
+    return { id, slug, target, pair: Promise.all([baselineP, actualP]) };
+  });
+
+  // Process results in order: logs stay sequential while captures run ahead.
+  for (let i = 0; i < entryPromises.length; i++) {
+    const { id, slug, target, pair } = entryPromises[i];
     console.log(
       `[${i + 1}/${targets.length}] ${target.category} :: ${target.title}`,
     );
 
-    const baseline = await captureOneSide({
-      browser,
-      url: target.baselineUrl,
-      key: slug,
-      dir: baselineDir,
-      timeoutMs: opts.timeoutMs,
-      skipScreenshots: opts.skipScreenshots,
-      exportHtml: opts.exportHtml,
-      viewportWidth: opts.viewportWidth,
-      viewportHeight: opts.viewportHeight,
-    });
-
-    const actual = await captureOneSide({
-      browser,
-      url: target.actualUrl,
-      key: slug,
-      dir: actualDir,
-      timeoutMs: opts.timeoutMs,
-      skipScreenshots: opts.skipScreenshots,
-      exportHtml: opts.exportHtml,
-      viewportWidth: opts.viewportWidth,
-      viewportHeight: opts.viewportHeight,
-    });
+    const [baseline, actual] = await pair;
 
     if (!baseline.ok || !actual.ok) {
       if (!baseline.ok) {
