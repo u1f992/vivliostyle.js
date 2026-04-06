@@ -1,11 +1,65 @@
-- id: "0093"
-  category: Leader
-  title: Table of Contents with leader()
-  file: leader/toc-leader.html
+- id: "0139"
+  category: Page breaks
+  title: "Page breaking with container padding/border (Issue #1846)"
+  file: page_breaks/page-breaking-with-container-padding-border.html
   type: difference
   decision: "expected" # regression / expected / skip
   notes: ""
-  approvedViewer: "git-fix-issue1842" # viewer spec: git-<branch>, v2.35.0, canary, stable, URL...
+  approvedViewer: "git-fix-issue1846" # viewer spec: git-<branch>, v2.35.0, canary, stable, URL...
+  actualLabel: canary
+  actualUrl: >-
+    https://vivliostyle.vercel.app/#src=https://raw.githubusercontent.com/vivliostyle/vivliostyle.js/master/packages/core/test/files/page_breaks/page-breaking-with-container-padding-border.html&zoom=1&spread=false
+  baselineLabel: stable
+  baselineUrl: >-
+    https://vivliostyle.org/viewer/#src=https://raw.githubusercontent.com/vivliostyle/vivliostyle.js/master/packages/core/test/files/page_breaks/page-breaking-with-container-padding-border.html&zoom=1&spread=false
+  pageCountActual: 3
+  pageCountBaseline: 4
+  diffPages:
+    - 2
+    - 3
+- id: "0249"
+  category: nth-fragment selectors
+  title: nesting nth-fragment selectors
+  file: nth-fragment/nesting_nth-fragment_selectors.html
+  type: difference
+  decision: "expected" # regression / expected / skip
+  notes: ""
+  approvedViewer: "git-fix-issue1846" # viewer spec: git-<branch>, v2.35.0, canary, stable, URL...
+  actualLabel: canary
+  actualUrl: >-
+    https://vivliostyle.vercel.app/#src=https://raw.githubusercontent.com/vivliostyle/vivliostyle.js/master/packages/core/test/files/nth-fragment/nesting_nth-fragment_selectors.html&zoom=1&spread=false
+  baselineLabel: stable
+  baselineUrl: >-
+    https://vivliostyle.org/viewer/#src=https://raw.githubusercontent.com/vivliostyle/vivliostyle.js/master/packages/core/test/files/nth-fragment/nesting_nth-fragment_selectors.html&zoom=1&spread=false
+  pageCountActual: 1
+  pageCountBaseline: 2
+  diffPages:
+    - 1
+- id: "0250"
+  category: nth-fragment selectors
+  title: nesting nth-fragment selectors (2)
+  file: nth-fragment/nesting_nth-fragment_selectors2.html
+  type: difference
+  decision: "expected" # regression / expected / skip
+  notes: ""
+  approvedViewer: "git-fix-issue1846" # viewer spec: git-<branch>, v2.35.0, canary, stable, URL...
+  actualLabel: canary
+  actualUrl: >-
+    https://vivliostyle.vercel.app/#src=https://raw.githubusercontent.com/vivliostyle/vivliostyle.js/master/packages/core/test/files/nth-fragment/nesting_nth-fragment_selectors2.html&zoom=1&spread=false
+  baselineLabel: stable
+  baselineUrl: >-
+    https://vivliostyle.org/viewer/#src=https://raw.githubusercontent.com/vivliostyle/vivliostyle.js/master/packages/core/test/files/nth-fragment/nesting_nth-fragment_selectors2.html&zoom=1&spread=false
+  pageCountActual: 1
+  pageCountBaseline: 2
+  diffPages:
+    - 1
+- category: Leader
+  title: Table of Contents with leader()
+  file: leader/toc-leader.html
+  type: difference
+  decision: expected # regression / expected / skip
+  notes: ""
+  approvedViewer: git-fix-issue1842 # viewer spec: git-<branch>, v2.35.0, canary, stable, URL...
   actualLabel: canary
   actualUrl: >-
     https://vivliostyle.vercel.app/#src=https://raw.githubusercontent.com/vivliostyle/vivliostyle.js/master/packages/core/test/files/leader/toc-leader.html&zoom=1&spread=false
@@ -14,14 +68,13 @@
     https://vivliostyle.org/viewer/#src=https://raw.githubusercontent.com/vivliostyle/vivliostyle.js/master/packages/core/test/files/leader/toc-leader.html&zoom=1&spread=false
   diffPages:
     - 1
-- id: "0129"
-  category: Page breaks
+- category: Page breaks
   title: Combine forced break values
   file: page_breaks/combine_breaks.html
   type: difference
-  decision: "expected" # regression / expected / skip
+  decision: expected # regression / expected / skip
   notes: ""
-  approvedViewer: "git-fix-issue1842" # viewer spec: git-<branch>, v2.35.0, canary, stable, URL...
+  approvedViewer: git-fix-issue1842 # viewer spec: git-<branch>, v2.35.0, canary, stable, URL...
   actualLabel: canary
   actualUrl: >-
     https://vivliostyle.vercel.app/#src=https://raw.githubusercontent.com/vivliostyle/vivliostyle.js/master/packages/core/test/files/page_breaks/combine_breaks.html&zoom=1&spread=false
@@ -40,14 +93,13 @@
     - 14
     - 15
     - 16
-- id: "0130"
-  category: Page breaks
+- category: Page breaks
   title: "Combine break value regressions (Issue #1842)"
   file: page_breaks/combine_breaks_2.html
   type: difference
-  decision: "expected" # regression / expected / skip
+  decision: expected # regression / expected / skip
   notes: ""
-  approvedViewer: "git-fix-issue1842" # viewer spec: git-<branch>, v2.35.0, canary, stable, URL...
+  approvedViewer: git-fix-issue1842 # viewer spec: git-<branch>, v2.35.0, canary, stable, URL...
   actualLabel: canary
   actualUrl: >-
     https://vivliostyle.vercel.app/#src=https://raw.githubusercontent.com/vivliostyle/vivliostyle.js/master/packages/core/test/files/page_breaks/combine_breaks_2.html&zoom=1&spread=false
