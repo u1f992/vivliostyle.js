@@ -4189,6 +4189,52 @@ export class CascadeInstance {
     }
   }
 
+  private static readonly COLOR_PROPERTIES = new Set([
+    "color",
+    "background-color",
+    "border-color",
+    "border-top-color",
+    "border-right-color",
+    "border-bottom-color",
+    "border-left-color",
+    "border-block-start-color",
+    "border-block-end-color",
+    "border-inline-start-color",
+    "border-inline-end-color",
+    "border-inside-color",
+    "border-outside-color",
+    "outline-color",
+    "text-decoration-color",
+    "text-emphasis-color",
+    "column-rule-color",
+    "caret-color",
+    "accent-color",
+    "flood-color",
+    "lighting-color",
+    "stop-color",
+    "fill",
+    "stroke",
+    "background",
+    "border",
+    "border-top",
+    "border-right",
+    "border-bottom",
+    "border-left",
+    "border-block",
+    "border-block-start",
+    "border-block-end",
+    "border-inline",
+    "border-inline-start",
+    "border-inline-end",
+    "outline",
+    "column-rule",
+    "text-decoration",
+    "background-image",
+    "text-stroke-color",
+    "box-shadow",
+    "text-shadow",
+  ]);
+
   applyColorFilter(elementStyle: ElementStyle, element?: Element): void {
     // Pass 1: Resolve dependent color values (contrast-color, light-dark, color-mix)
     this.applyColorResolverInternal(elementStyle);
@@ -4218,7 +4264,11 @@ export class CascadeInstance {
             `::${pseudoName}:`,
           );
         }
-      } else if (isPropName(name) && !Css.isCustomPropName(name)) {
+      } else if (
+        isPropName(name) &&
+        !Css.isCustomPropName(name) &&
+        CascadeInstance.isColorProperty(name)
+      ) {
         const cascVal = getProp(elementStyle, name);
         const originalValue = cascVal.value.toString();
         visitor.reset(name);
@@ -4231,6 +4281,10 @@ export class CascadeInstance {
     }
   }
 
+  private static isColorProperty(name: string): boolean {
+    return CascadeInstance.COLOR_PROPERTIES.has(name);
+  }
+
   private applyColorResolverInternal(elementStyle: ElementStyle): void {
     const resolver = new ColorResolverVisitor();
     for (const name in elementStyle) {
@@ -4239,7 +4293,11 @@ export class CascadeInstance {
         for (const pseudoName in pseudoMap) {
           this.applyColorResolverInternal(pseudoMap[pseudoName]);
         }
-      } else if (isPropName(name) && !Css.isCustomPropName(name)) {
+      } else if (
+        isPropName(name) &&
+        !Css.isCustomPropName(name) &&
+        CascadeInstance.isColorProperty(name)
+      ) {
         const cascVal = getProp(elementStyle, name);
         const value = cascVal.value.visit(resolver);
         if (value !== cascVal.value) {
