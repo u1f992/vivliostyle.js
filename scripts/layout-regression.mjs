@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 
 import fs from "node:fs";
+import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { chromium } from "playwright";
@@ -34,7 +35,7 @@ const defaults = {
   viewportWidth: 1800,
   viewportHeight: 1800,
   skipScreenshots: false,
-  concurrency: 1,
+  concurrency: os.availableParallelism(),
   exportHtml: false,
   exportHtmlDiff: false,
   actualViewer: "https://vivliostyle.vercel.app/",
@@ -239,7 +240,7 @@ Options:
   --viewport-width <number>  Browser viewport width
   --viewport-height <number> Browser viewport height
   --skip-screenshots         Skip image capture/compare, check page counts only
-  --concurrency <number>     Number of entries to capture in parallel (default 1)
+  --concurrency <number>     Number of entries to capture in parallel (default: os.availableParallelism())
   --export-html              Export rendered HTML snapshot for each entry
   --export-html-diff         Compare prettified rendered HTML and write diff
   --actual-viewer <spec>     Actual viewer: URL, version (v2.35.0 or 2019.11.100),
