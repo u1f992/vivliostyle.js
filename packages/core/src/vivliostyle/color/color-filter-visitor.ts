@@ -9,7 +9,7 @@ import { SRGBValue } from "./color-store/srgb-value";
 import type { ColorEntry } from "./color-store/color-entry";
 import { colorToSrgbFloat, colorToColorEntry, isRgbDirect } from "./resolve";
 import { NAMED_COLORS } from "./named-colors-table";
-import { isValidColorFunction, isValidColorIdent } from "./color-parser";
+import { isValidColorFunction } from "./color-parser";
 
 /**
  * System color UA fixed values (sRGB 0..1).
@@ -36,6 +36,43 @@ const SYSTEM_COLOR_VALUES: Record<string, [number, number, number]> = {
   selecteditemtext: [1, 1, 1],
   visitedtext: [0.33, 0, 0.53],
 };
+
+/**
+ * Extract alpha value from a color function's values.
+ * Looks for slash separator followed by a number.
+ */
+function extractAlpha(func: Css.Func): number | null {
+  const vals =
+    func.values.length === 1 && func.values[0] instanceof Css.SpaceList
+      ? (func.values[0] as Css.SpaceList).values
+      : func.values;
+
+  for (let i = 0; i < vals.length; i++) {
+    if (vals[i] instanceof Css.Slash && i + 1 < vals.length) {
+      const alphaVal = vals[i + 1];
+      if (alphaVal instanceof Css.Num) {
+        return alphaVal.num;
+      }
+      if (alphaVal instanceof Css.Numeric && alphaVal.unit === "%") {
+        return alphaVal.num / 100;
+      }
+    }
+  }
+  return null;
+}
+
+/**
+ * Extract alpha from hex color (8-digit or 4-digit hex).
+ */
+function extractHexAlpha(hex: string): number | null {
+  if (hex.length === 4) {
+    return parseInt(hex[3] + hex[3], 16) / 255;
+  }
+  if (hex.length === 8) {
+    return parseInt(hex.substring(6, 8), 16) / 255;
+  }
+  return null;
+}
 
 export class ColorFilterVisitor extends Css.FilterVisitor {
   readonly #store: ColorStore;
@@ -71,21 +108,21 @@ export class ColorFilterVisitor extends Css.FilterVisitor {
   override visitIdent(ident: Css.Ident): Css.Val {
     const lower = ident.name.toLowerCase();
 
-    // Named color
+    // Named color (always opaque)
     const named = NAMED_COLORS[lower];
     if (named !== undefined) {
-      return this.#registerColor(named, { type: "DeviceRGB" }, true);
+      return this.#registerColor(named, { type: "DeviceRGB" }, true, null);
     }
 
-    // transparent
+    // transparent = rgba(0,0,0,0)
     if (lower === "transparent") {
-      return this.#registerColor([0, 0, 0], { type: "DeviceRGB" }, true);
+      return this.#registerColor([0, 0, 0], { type: "DeviceRGB" }, true, 0);
     }
 
-    // System color
+    // System color (always opaque)
     const sys = SYSTEM_COLOR_VALUES[lower];
     if (sys !== undefined) {
-      return this.#registerColor(sys, { type: "DeviceRGB" }, true);
+      return this.#registerColor(sys, { type: "DeviceRGB" }, true, null);
     }
 
     // currentcolor — pass through (resolved separately)
@@ -110,35 +147,38 @@ export class ColorFilterVisitor extends Css.FilterVisitor {
       b = parseInt(hex.substring(4, 6), 16) / 255;
     }
 
-    return this.#registerColor([r, g, b], { type: "DeviceRGB" }, true);
+    const alpha = extractHexAlpha(hex);
+    return this.#registerColor([r, g, b], { type: "DeviceRGB" }, true, alpha);
   }
 
   override visitFunc(func: Css.Func): Css.Val {
     if (!isValidColorFunction(func.name)) {
-      return super.visitFunc(func);
+      // Do NOT recurse into non-color functions (e.g. gradients, images).
+      return func;
     }
 
-    // Use resolve.ts to convert to sRGB and get ColorEntry
     const rgb = colorToSrgbFloat(func as any);
     const entry = colorToColorEntry(func as any);
     const direct = isRgbDirect(func as any);
+    const alpha = extractAlpha(func);
 
-    return this.#registerColor(rgb, entry, direct);
+    return this.#registerColor(rgb, entry, direct, alpha);
   }
 
   #registerColor(
     rgb: [number, number, number],
     entry: ColorEntry,
     direct: boolean,
+    alpha: number | null,
   ): Css.Val {
     const srgb = SRGBValue.fromFloat(rgb[0], rgb[1], rgb[2]);
 
     if (direct) {
       this.#store.registerRgbDirect(srgb, entry);
-      return srgb.toColorFunc(null);
+      return srgb.toColorFunc(alpha);
     } else {
       const assigned = this.#store.registerNonRgb(srgb, entry);
-      return assigned.toColorFunc(null);
+      return assigned.toColorFunc(alpha);
     }
   }
 }

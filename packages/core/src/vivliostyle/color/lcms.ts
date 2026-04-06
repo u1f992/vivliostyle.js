@@ -8,11 +8,21 @@ export async function initLcms(): Promise<MainModule> {
   if (lcmsModule !== null) {
     return lcmsModule;
   }
-  const { default: createLcmsModule } = await import(
-    "@vivliostyle/lcms/lib/lcms.js"
-  );
-  lcmsModule = await createLcmsModule();
-  return lcmsModule;
+  try {
+    // Dynamic import path constructed at runtime to prevent bundlers from
+    // resolving it statically. lcms is an optional dependency.
+    const modulePath = ["@vivliostyle", "lcms", "lib", "lcms.js"].join("/");
+    const mod = await (Function(
+      "p",
+      "return import(p)",
+    )(modulePath) as Promise<{
+      default: (opts?: unknown) => Promise<MainModule>;
+    }>);
+    lcmsModule = await mod.default();
+  } catch {
+    // lcms not available — non-RGB color conversions will fall back
+  }
+  return lcmsModule!;
 }
 
 export function isLcmsInitialized(): boolean {

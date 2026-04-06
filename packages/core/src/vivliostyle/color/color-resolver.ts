@@ -453,7 +453,8 @@ export class ColorResolverVisitor extends Css.FilterVisitor {
         if (hasRelativeSyntax(func) && func.name in COMPONENT_KEYWORDS) {
           return resolveRelativeColor(func);
         }
-        return super.visitFunc(func);
+        // Do not recurse into non-color functions (gradients, images, etc.)
+        return func;
     }
   }
 }

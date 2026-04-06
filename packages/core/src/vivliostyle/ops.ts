@@ -369,126 +369,120 @@ export class StyleInstance
 
   init(): Task.Result<boolean> {
     const frame: Task.Frame<boolean> = Task.newFrame("StyleInstance.init");
-    // Initialize lcms for color space conversions, then proceed with styling
-    initLcms()
-      .catch(() => {
-        // lcms initialization failure is non-fatal; RGB-only colors still work
-      })
-      .then(() => {
-        const counterListener = this.counterStore.createCounterListener(
-          this.xmldoc.url,
-        );
-        const counterResolver = this.counterStore.createCounterResolver(
-          this.xmldoc.url,
-          this.style.rootScope,
-          this.style.pageScope,
-        );
-        this.styler = new CssStyler.Styler(
-          this.xmldoc,
-          this.style.cascade,
-          this.style.rootScope,
-          this,
-          this.primaryFlows,
-          this.style.validatorSet,
-          counterListener,
-          counterResolver,
-          this.style.counterStyleStore,
-          this.colorStore,
-        );
-        counterResolver.setStyler(this.styler);
-        this.styler.resetFlowChunkStream(this);
-        this.stylerMap = {};
-        this.stylerMap[this.xmldoc.url] = this.styler;
-        const docElementStyle = this.styler.getTopContainerStyle();
-        if (!this.pageProgression) {
-          this.pageProgression =
-            CssPage.resolvePageProgression(docElementStyle);
-        }
+    // Fire-and-forget lcms initialization.
+    // Non-RGB colors that need lcms will check isLcmsInitialized() at resolve time.
+    initLcms().catch(() => {});
+    const counterListener = this.counterStore.createCounterListener(
+      this.xmldoc.url,
+    );
+    const counterResolver = this.counterStore.createCounterResolver(
+      this.xmldoc.url,
+      this.style.rootScope,
+      this.style.pageScope,
+    );
+    this.styler = new CssStyler.Styler(
+      this.xmldoc,
+      this.style.cascade,
+      this.style.rootScope,
+      this,
+      this.primaryFlows,
+      this.style.validatorSet,
+      counterListener,
+      counterResolver,
+      this.style.counterStyleStore,
+      this.colorStore,
+    );
+    counterResolver.setStyler(this.styler);
+    this.styler.resetFlowChunkStream(this);
+    this.stylerMap = {};
+    this.stylerMap[this.xmldoc.url] = this.styler;
+    const docElementStyle = this.styler.getTopContainerStyle();
+    if (!this.pageProgression) {
+      this.pageProgression = CssPage.resolvePageProgression(docElementStyle);
+    }
 
-        // Check the spread break at beginning of a document that may cause
-        // the first page verso side or cause a blank page (issue #666)
-        if (!this.matchStartPageSide(this.styler.breakBeforeValues[0])) {
-          if (this.pageNumberOffset === 0) {
-            this.isVersoFirstPage = true;
-          } else {
-            this.blankPageAtStart = true;
-          }
-        }
+    // Check the spread break at beginning of a document that may cause
+    // the first page verso side or cause a blank page (issue #666)
+    if (!this.matchStartPageSide(this.styler.breakBeforeValues[0])) {
+      if (this.pageNumberOffset === 0) {
+        this.isVersoFirstPage = true;
+      } else {
+        this.blankPageAtStart = true;
+      }
+    }
 
-        const rootBox = this.style.rootBox;
-        this.rootPageBoxInstance = new PageMaster.RootPageBoxInstance(rootBox);
-        const cascadeInstance = this.style.cascade.createInstance(
-          this,
-          counterListener,
-          counterResolver,
-          this.lang,
-          this.style.counterStyleStore,
-          this.colorStore,
-        );
+    const rootBox = this.style.rootBox;
+    this.rootPageBoxInstance = new PageMaster.RootPageBoxInstance(rootBox);
+    const cascadeInstance = this.style.cascade.createInstance(
+      this,
+      counterListener,
+      counterResolver,
+      this.lang,
+      this.style.counterStyleStore,
+      this.colorStore,
+    );
 
-        // Named page type at first page
-        this.styler.cascade.currentPageType = this.styler.cascade.firstPageType;
+    // Named page type at first page
+    this.styler.cascade.currentPageType = this.styler.cascade.firstPageType;
 
-        this.rootPageBoxInstance.applyCascadeAndInit(
-          cascadeInstance,
-          docElementStyle,
-        );
-        this.rootPageBoxInstance.resolveAutoSizing(this);
-        this.pageManager = new CssPage.PageManager(
-          cascadeInstance,
-          this.style.pageScope,
-          this.rootPageBoxInstance,
-          this,
-          docElementStyle,
-        );
-        const srcFaces = [] as Font.Face[];
-        for (const fontFace of this.style.fontFaces) {
-          if (fontFace.condition && !fontFace.condition.evaluate(this)) {
-            continue;
-          }
-          const properties = Font.prepareProperties(fontFace.properties, this);
-          const srcFace = new Font.Face(properties);
-          srcFaces.push(srcFace);
-        }
-        this.fontMapper.findOrLoadFonts(srcFaces, this.faces).then(() => {
-          // JavaScript in HTML documents support
-          Scripts.loadScriptsInHead(
-            this.xmldoc.document,
-            this.viewport.window,
-            this.styler,
-          ).thenFinish(frame);
-        });
+    this.rootPageBoxInstance.applyCascadeAndInit(
+      cascadeInstance,
+      docElementStyle,
+    );
+    this.rootPageBoxInstance.resolveAutoSizing(this);
+    this.pageManager = new CssPage.PageManager(
+      cascadeInstance,
+      this.style.pageScope,
+      this.rootPageBoxInstance,
+      this,
+      docElementStyle,
+    );
+    const srcFaces = [] as Font.Face[];
+    for (const fontFace of this.style.fontFaces) {
+      if (fontFace.condition && !fontFace.condition.evaluate(this)) {
+        continue;
+      }
+      const properties = Font.prepareProperties(fontFace.properties, this);
+      const srcFace = new Font.Face(properties);
+      srcFaces.push(srcFace);
+    }
+    this.fontMapper.findOrLoadFonts(srcFaces, this.faces).then(() => {
+      // JavaScript in HTML documents support
+      Scripts.loadScriptsInHead(
+        this.xmldoc.document,
+        this.viewport.window,
+        this.styler,
+      ).thenFinish(frame);
+    });
 
-        // Determine page sheet sizes corresponding to page selectors
-        const pageProps = this.style.pageProps;
-        if (!pageProps[""]) {
-          pageProps[""] = {};
-        }
-        Object.keys(pageProps).forEach((selector) => {
-          let pageStyle = pageProps[selector] as {
-            [key: string]: CssCascade.CascadeValue;
-          };
+    // Determine page sheet sizes corresponding to page selectors
+    const pageProps = this.style.pageProps;
+    if (!pageProps[""]) {
+      pageProps[""] = {};
+    }
+    Object.keys(pageProps).forEach((selector) => {
+      let pageStyle = pageProps[selector] as {
+        [key: string]: CssCascade.CascadeValue;
+      };
 
-          // Substitute var() in @page
-          this.styler.cascade.applyVarFilter([pageStyle], this.styler, null);
+      // Substitute var() in @page
+      this.styler.cascade.applyVarFilter([pageStyle], this.styler, null);
 
-          // Calculate calc()
-          this.styler.cascade.applyCalcFilter(pageStyle, this.styler.context);
+      // Calculate calc()
+      this.styler.cascade.applyCalcFilter(pageStyle, this.styler.context);
 
-          // Convert all color values to color(srgb ...)
-          this.styler.cascade.applyColorFilter(pageStyle);
+      // Convert all color values to color(srgb ...)
+      this.styler.cascade.applyColorFilter(pageStyle);
 
-          const pageSizeAndBleed = CssPage.evaluatePageSizeAndBleed(
-            CssPage.resolvePageSizeAndBleed(pageStyle),
-            this,
-          );
-          this.pageSheetSize[selector] = {
-            width: pageSizeAndBleed.pageWidth + pageSizeAndBleed.cropOffset * 2,
-            height:
-              pageSizeAndBleed.pageHeight + pageSizeAndBleed.cropOffset * 2,
-          };
-        });
-      }); // initLcms().then()
+      const pageSizeAndBleed = CssPage.evaluatePageSizeAndBleed(
+        CssPage.resolvePageSizeAndBleed(pageStyle),
+        this,
+      );
+      this.pageSheetSize[selector] = {
+        width: pageSizeAndBleed.pageWidth + pageSizeAndBleed.cropOffset * 2,
+        height: pageSizeAndBleed.pageHeight + pageSizeAndBleed.cropOffset * 2,
+      };
+    });
     return frame.result();
   }
 
