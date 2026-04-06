@@ -1,12 +1,16 @@
 #!/usr/bin/env node
 
 import fs from "node:fs";
+import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { chromium } from "playwright";
 import pixelmatch from "pixelmatch";
 import { PNG } from "pngjs";
 import yaml from "js-yaml";
+import pLimit from "p-limit";
+import { createTwoFilesPatch } from "diff";
+import prettier from "prettier";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -31,6 +35,9 @@ const defaults = {
   viewportWidth: 1800,
   viewportHeight: 1800,
   skipScreenshots: false,
+  concurrency: os.availableParallelism(),
+  exportHtml: false,
+  exportHtmlDiff: false,
   actualViewer: "https://vivliostyle.vercel.app/",
   baselineViewer: "https://vivliostyle.org/viewer/",
   actualLabel: "canary",
@@ -140,6 +147,13 @@ function parseArgs(argv) {
       opts.viewportHeight = Number(argv[++i]);
     } else if (a === "--skip-screenshots") {
       opts.skipScreenshots = true;
+    } else if (a === "--concurrency") {
+      opts.concurrency = Number(argv[++i]);
+    } else if (a === "--export-html") {
+      opts.exportHtml = true;
+    } else if (a === "--export-html-diff") {
+      opts.exportHtmlDiff = true;
+      opts.exportHtml = true;
     } else if (a === "--baseline-viewer") {
       baselineViewerSpec = argv[++i];
     } else if (a === "--actual-viewer") {
@@ -195,6 +209,10 @@ function parseArgs(argv) {
   ) {
     throw new Error("--pixel-threshold must be between 0 and 1");
   }
+  if (!Number.isFinite(opts.concurrency) || opts.concurrency < 1) {
+    throw new Error("--concurrency must be a positive integer");
+  }
+  opts.concurrency = Math.floor(opts.concurrency);
   if (!opts.baselineViewer || !opts.actualViewer) {
     throw new Error("--baseline-viewer and --actual-viewer are required");
   }
@@ -222,6 +240,9 @@ Options:
   --viewport-width <number>  Browser viewport width
   --viewport-height <number> Browser viewport height
   --skip-screenshots         Skip image capture/compare, check page counts only
+  --concurrency <number>     Number of entries to capture in parallel (default: os.availableParallelism())
+  --export-html              Export rendered HTML snapshot for each entry
+  --export-html-diff         Compare prettified rendered HTML and write diff
   --actual-viewer <spec>     Actual viewer: URL, version (v2.35.0 or 2019.11.100),
                              or keyword: canary, stable, dev, prod, git-<branch> (default: canary)
   --baseline-viewer <spec>   Baseline viewer: same format as --actual-viewer (default: stable)
@@ -686,6 +707,7 @@ async function capturePages({
   dir,
   timeoutMs,
   skipScreenshots,
+  exportHtml,
 }) {
   await page.goto(url, { waitUntil: "domcontentloaded", timeout: timeoutMs });
   await waitForViewerReady(page, timeoutMs);
@@ -696,6 +718,12 @@ async function capturePages({
   }
 
   const totalPages = await getTotalPages(page);
+
+  if (exportHtml) {
+    const html = await page.content();
+    const snapshotPath = path.join(dir, `${key}.html`);
+    fs.writeFileSync(snapshotPath, html, "utf8");
+  }
 
   if (!skipScreenshots) {
     const spreadContainer = page.locator(
@@ -744,6 +772,7 @@ async function captureOneSide({
   dir,
   timeoutMs,
   skipScreenshots,
+  exportHtml,
   viewportWidth,
   viewportHeight,
 }) {
@@ -762,6 +791,7 @@ async function captureOneSide({
       dir,
       timeoutMs,
       skipScreenshots,
+      exportHtml,
     });
     return { ok: true, ...captured };
   } catch (err) {
@@ -1247,35 +1277,47 @@ async function main() {
   let screenshotMismatches = 0;
   let timeoutEntries = 0;
 
-  for (let i = 0; i < targets.length; i++) {
-    const target = targets[i];
+  // Dispatch all captures into a bounded concurrency pool.
+  // Each entry produces a Promise that resolves with [baseline, actual].
+  const limit = pLimit(opts.concurrency);
+  const entryPromises = targets.map((target, i) => {
     const id = String(i + 1).padStart(4, "0");
     const slug = `${id}-${sanitizeName(target.category)}-${sanitizeName(target.title)}`;
+    const captureOpts = {
+      browser,
+      timeoutMs: opts.timeoutMs,
+      skipScreenshots: opts.skipScreenshots,
+      exportHtml: opts.exportHtml,
+      viewportWidth: opts.viewportWidth,
+      viewportHeight: opts.viewportHeight,
+    };
+    const baselineP = limit(() =>
+      captureOneSide({
+        ...captureOpts,
+        url: target.baselineUrl,
+        key: slug,
+        dir: baselineDir,
+      }),
+    );
+    const actualP = limit(() =>
+      captureOneSide({
+        ...captureOpts,
+        url: target.actualUrl,
+        key: slug,
+        dir: actualDir,
+      }),
+    );
+    return { id, slug, target, pair: Promise.all([baselineP, actualP]) };
+  });
+
+  // Process results in order: logs stay sequential while captures run ahead.
+  for (let i = 0; i < entryPromises.length; i++) {
+    const { id, slug, target, pair } = entryPromises[i];
     console.log(
       `[${i + 1}/${targets.length}] ${target.category} :: ${target.title}`,
     );
 
-    const baseline = await captureOneSide({
-      browser,
-      url: target.baselineUrl,
-      key: slug,
-      dir: baselineDir,
-      timeoutMs: opts.timeoutMs,
-      skipScreenshots: opts.skipScreenshots,
-      viewportWidth: opts.viewportWidth,
-      viewportHeight: opts.viewportHeight,
-    });
-
-    const actual = await captureOneSide({
-      browser,
-      url: target.actualUrl,
-      key: slug,
-      dir: actualDir,
-      timeoutMs: opts.timeoutMs,
-      skipScreenshots: opts.skipScreenshots,
-      viewportWidth: opts.viewportWidth,
-      viewportHeight: opts.viewportHeight,
-    });
+    const [baseline, actual] = await pair;
 
     if (!baseline.ok || !actual.ok) {
       if (!baseline.ok) {
@@ -1379,6 +1421,40 @@ async function main() {
 
     if (diffEntry.pages.length > 0) {
       screenshotMismatches += 1;
+
+      if (opts.exportHtmlDiff) {
+        try {
+          const baselineHtml = fs.readFileSync(
+            path.join(baselineDir, `${slug}.html`),
+            "utf8",
+          );
+          const actualHtml = fs.readFileSync(
+            path.join(actualDir, `${slug}.html`),
+            "utf8",
+          );
+          const formatOpts = { parser: "html", printWidth: 120 };
+          const baselineFormatted = await prettier.format(
+            baselineHtml,
+            formatOpts,
+          );
+          const actualFormatted = await prettier.format(actualHtml, formatOpts);
+          const patch = createTwoFilesPatch(
+            `baseline/${slug}.html`,
+            `actual/${slug}.html`,
+            baselineFormatted,
+            actualFormatted,
+          );
+          // createTwoFilesPatch always returns a header even if identical;
+          // only write when there are actual changes (lines starting with + or -)
+          if (/^[+-][^+-]/m.test(patch)) {
+            fs.writeFileSync(path.join(diffDir, `${slug}.diff`), patch, "utf8");
+          }
+        } catch (error) {
+          console.warn(
+            `  -> skipped HTML diff export for ${slug}: ${error instanceof Error ? error.message : String(error)}`,
+          );
+        }
+      }
     }
 
     if (diffEntry.pageCountMismatch || diffEntry.pages.length > 0) {
