@@ -1,39 +1,32 @@
+import * as Task from "../task";
+
 type MainModule = import("@vivliostyle/lcms/lib/lcms.js").MainModule;
 type Profile = import("@vivliostyle/lcms/lib/lcms.js").Profile;
 type Transform = import("@vivliostyle/lcms/lib/lcms.js").Transform;
 
-let lcmsModule: MainModule | null = null;
+let lcms: MainModule | null = null;
 
-export async function initLcms(): Promise<MainModule> {
-  if (lcmsModule !== null) {
-    return lcmsModule;
+export function initLcms(): Task.Result<boolean> {
+  if (lcms !== null) {
+    return Task.newResult(true);
   }
-  try {
-    // Dynamic import path constructed at runtime to prevent bundlers from
-    // resolving it statically. lcms is an optional dependency.
-    const modulePath = ["@vivliostyle", "lcms", "lib", "lcms.js"].join("/");
-    const mod = await (Function(
-      "p",
-      "return import(p)",
-    )(modulePath) as Promise<{
+  const frame: Task.Frame<boolean> = Task.newFrame("initLcms");
+  const continuation = frame.suspend();
+  (
+    import("@vivliostyle/lcms/lib/lcms.js") as Promise<{
       default: (opts?: unknown) => Promise<MainModule>;
-    }>);
-    lcmsModule = await mod.default();
-  } catch {
-    // lcms not available — non-RGB color conversions will fall back
-  }
-  return lcmsModule!;
-}
-
-export function isLcmsInitialized(): boolean {
-  return lcmsModule !== null;
+    }>
+  )
+    .then((mod) => mod.default())
+    .then((module) => {
+      lcms = module;
+      continuation.schedule(true);
+    });
+  return frame.result();
 }
 
 export function getLcms(): MainModule {
-  if (lcmsModule === null) {
-    throw new Error("lcms not initialized. Call initLcms() first.");
-  }
-  return lcmsModule;
+  return lcms!;
 }
 
 // Built-in profile cache
@@ -44,7 +37,7 @@ let xyzProfile: Profile | null = null;
 
 export function getSrgbProfile(): Profile {
   if (srgbProfile === null) {
-    const p = getLcms().createSRGBProfile();
+    const p = lcms!.createSRGBProfile();
     if (p === null) {
       throw new Error("Failed to create sRGB profile");
     }
@@ -55,7 +48,7 @@ export function getSrgbProfile(): Profile {
 
 export function getLabProfile(): Profile {
   if (labProfile === null) {
-    const p = getLcms().createLab4Profile();
+    const p = lcms!.createLab4Profile();
     if (p === null) {
       throw new Error("Failed to create Lab profile");
     }
@@ -66,7 +59,7 @@ export function getLabProfile(): Profile {
 
 export function getOklabProfile(): Profile {
   if (oklabProfile === null) {
-    const p = getLcms().createOkLabProfile();
+    const p = lcms!.createOkLabProfile();
     if (p === null) {
       throw new Error("Failed to create OKLab profile");
     }
@@ -77,7 +70,7 @@ export function getOklabProfile(): Profile {
 
 export function getXyzProfile(): Profile {
   if (xyzProfile === null) {
-    const p = getLcms().createXYZProfile();
+    const p = lcms!.createXYZProfile();
     if (p === null) {
       throw new Error("Failed to create XYZ profile");
     }
@@ -100,13 +93,12 @@ function getCachedTransform(
   if (cached !== undefined) {
     return cached;
   }
-  const lcms = getLcms();
-  const t = lcms.createTransform(
+  const t = lcms!.createTransform(
     inputProfile,
     inputFormat,
     outputProfile,
     outputFormat,
-    lcms.INTENT_PERCEPTUAL,
+    lcms!.INTENT_PERCEPTUAL,
     0,
   );
   if (t === null) {
@@ -137,73 +129,67 @@ export function transformColor(
 // Shortcut functions
 
 export function srgbToLab(r: number, g: number, b: number): number[] {
-  const lcms = getLcms();
   return transformColor(
     [r, g, b],
     getSrgbProfile(),
-    lcms.TYPE_RGB_DBL,
+    lcms!.TYPE_RGB_DBL,
     getLabProfile(),
-    lcms.TYPE_Lab_DBL,
+    lcms!.TYPE_Lab_DBL,
     "srgb->lab",
   );
 }
 
 export function labToSrgb(L: number, a: number, b: number): number[] {
-  const lcms = getLcms();
   return transformColor(
     [L, a, b],
     getLabProfile(),
-    lcms.TYPE_Lab_DBL,
+    lcms!.TYPE_Lab_DBL,
     getSrgbProfile(),
-    lcms.TYPE_RGB_DBL,
+    lcms!.TYPE_RGB_DBL,
     "lab->srgb",
   );
 }
 
 export function oklabToSrgb(L: number, a: number, b: number): number[] {
-  const lcms = getLcms();
   return transformColor(
     [L, a, b],
     getOklabProfile(),
-    lcms.TYPE_OKLAB_DBL,
+    lcms!.TYPE_OKLAB_DBL,
     getSrgbProfile(),
-    lcms.TYPE_RGB_DBL,
+    lcms!.TYPE_RGB_DBL,
     "oklab->srgb",
   );
 }
 
 export function srgbToOklab(r: number, g: number, b: number): number[] {
-  const lcms = getLcms();
   return transformColor(
     [r, g, b],
     getSrgbProfile(),
-    lcms.TYPE_RGB_DBL,
+    lcms!.TYPE_RGB_DBL,
     getOklabProfile(),
-    lcms.TYPE_OKLAB_DBL,
+    lcms!.TYPE_OKLAB_DBL,
     "srgb->oklab",
   );
 }
 
 export function xyzToSrgb(x: number, y: number, z: number): number[] {
-  const lcms = getLcms();
   return transformColor(
     [x, y, z],
     getXyzProfile(),
-    lcms.TYPE_XYZ_DBL,
+    lcms!.TYPE_XYZ_DBL,
     getSrgbProfile(),
-    lcms.TYPE_RGB_DBL,
+    lcms!.TYPE_RGB_DBL,
     "xyz->srgb",
   );
 }
 
 export function srgbToXyz(r: number, g: number, b: number): number[] {
-  const lcms = getLcms();
   return transformColor(
     [r, g, b],
     getSrgbProfile(),
-    lcms.TYPE_RGB_DBL,
+    lcms!.TYPE_RGB_DBL,
     getXyzProfile(),
-    lcms.TYPE_XYZ_DBL,
+    lcms!.TYPE_XYZ_DBL,
     "srgb->xyz",
   );
 }
@@ -211,8 +197,7 @@ export function srgbToXyz(r: number, g: number, b: number): number[] {
 // ICC profile utilities
 
 export function openProfileFromMemory(data: Uint8Array): Profile {
-  const lcms = getLcms();
-  const p = lcms.openProfileFromMemory(Array.from(data));
+  const p = lcms!.openProfileFromMemory(Array.from(data));
   if (p === null) {
     throw new Error("Failed to open ICC profile from memory");
   }
@@ -225,22 +210,21 @@ export interface IccProfileInfo {
 }
 
 export function getIccProfileInfo(profile: Profile): IccProfileInfo {
-  const lcms = getLcms();
   const sig = profile.colorSpace();
 
-  if (sig === lcms.cmsSigRgbData) {
+  if (sig === lcms!.cmsSigRgbData) {
     return { n: 3, alternate: "DeviceRGB" };
   }
-  if (sig === lcms.cmsSigCmykData) {
+  if (sig === lcms!.cmsSigCmykData) {
     return { n: 4, alternate: "DeviceCMYK" };
   }
-  if (sig === lcms.cmsSigGrayData) {
+  if (sig === lcms!.cmsSigGrayData) {
     return { n: 1, alternate: "DeviceGray" };
   }
-  if (sig === lcms.cmsSigLabData) {
+  if (sig === lcms!.cmsSigLabData) {
     return { n: 3, alternate: "Lab" };
   }
-  if (sig === lcms.cmsSigXYZData) {
+  if (sig === lcms!.cmsSigXYZData) {
     return { n: 3, alternate: "Lab" };
   }
 

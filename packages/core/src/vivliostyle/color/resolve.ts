@@ -11,7 +11,6 @@ import { SRGBValue } from "./color-store/srgb-value";
 import type { ColorEntry } from "./color-store/color-entry";
 import { hslToSrgb, hwbToSrgb, deviceCmykToSrgbNaive } from "./convert";
 import {
-  isLcmsInitialized,
   labToSrgb,
   oklabToSrgb,
   srgbToLab,
@@ -304,31 +303,28 @@ export function colorToSrgbFloat(color: Color): [number, number, number] {
         }
 
         // Non-sRGB predefined spaces need lcms
-        if (isLcmsInitialized()) {
-          const lcms = getLcms();
-          const srgb = getSrgbProfile();
+        const lcmsM = getLcms();
+        const srgb = getSrgbProfile();
 
-          if (space === "xyz" || space === "xyz-d65") {
-            return xyzToSrgb(c1, c2, c3) as [number, number, number];
-          }
-          if (space === "xyz-d50") {
-            // XYZ D50 — use lcms XYZ profile (which is D50 in ICC PCS)
-            const result = transformColor(
-              [c1, c2, c3],
-              (() => {
-                const p = lcms.createXYZProfile();
-                return p!;
-              })(),
-              lcms.TYPE_XYZ_DBL,
-              srgb,
-              lcms.TYPE_RGB_DBL,
-              "xyz-d50->srgb",
-            );
-            return [result[0]!, result[1]!, result[2]!];
-          }
-          // display-p3, a98-rgb, prophoto-rgb, rec2020, srgb-linear
-          // These need ICC profiles loaded — fall through to sRGB approximation
+        if (space === "xyz" || space === "xyz-d65") {
+          return xyzToSrgb(c1, c2, c3) as [number, number, number];
         }
+        if (space === "xyz-d50") {
+          const result = transformColor(
+            [c1, c2, c3],
+            (() => {
+              const p = lcmsM.createXYZProfile();
+              return p!;
+            })(),
+            lcmsM.TYPE_XYZ_DBL,
+            srgb,
+            lcmsM.TYPE_RGB_DBL,
+            "xyz-d50->srgb",
+          );
+          return [result[0]!, result[1]!, result[2]!];
+        }
+        // display-p3, a98-rgb, prophoto-rgb, rec2020, srgb-linear
+        // These need ICC profiles loaded — fall through to sRGB approximation
 
         // Fallback: treat as sRGB (lossy but non-crashing)
         return [c1, c2, c3];
@@ -484,22 +480,16 @@ export function colorToColorEntry(color: Color): ColorEntry {
 
   // OKLab → convert to CIE Lab for PDF /Lab
   if (color instanceof Oklab) {
-    if (isLcmsInitialized()) {
-      const [r, g, b] = colorToSrgbFloat(color);
-      const lab = srgbToLab(r, g, b);
-      return { type: "Lab", L: lab[0]!, a: lab[1]!, b: lab[2]! };
-    }
-    return { type: "DeviceRGB" }; // fallback if lcms not ready
+    const [r, g, b] = colorToSrgbFloat(color);
+    const lab = srgbToLab(r, g, b);
+    return { type: "Lab", L: lab[0]!, a: lab[1]!, b: lab[2]! };
   }
 
   // OKLCH → CIE Lab for PDF /Lab
   if (color instanceof Oklch) {
-    if (isLcmsInitialized()) {
-      const [r, g, b] = colorToSrgbFloat(color);
-      const lab = srgbToLab(r, g, b);
-      return { type: "Lab", L: lab[0]!, a: lab[1]!, b: lab[2]! };
-    }
-    return { type: "DeviceRGB" };
+    const [r, g, b] = colorToSrgbFloat(color);
+    const lab = srgbToLab(r, g, b);
+    return { type: "Lab", L: lab[0]!, a: lab[1]!, b: lab[2]! };
   }
 
   // LCH → CIE Lab

@@ -44,12 +44,6 @@ module.exports = function (config) {
       devtool: "inline-source-map",
       resolve: {
         extensions: [".ts", ".js"],
-        alias: {
-          "@vivliostyle/lcms/lib/lcms.js": require("path").resolve(
-            __dirname,
-            "../util/lcms-mock.js",
-          ),
-        },
       },
       module: {
         rules: [

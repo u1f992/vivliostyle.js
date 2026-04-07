@@ -369,9 +369,6 @@ export class StyleInstance
 
   init(): Task.Result<boolean> {
     const frame: Task.Frame<boolean> = Task.newFrame("StyleInstance.init");
-    // Fire-and-forget lcms initialization.
-    // Non-RGB colors that need lcms will check isLcmsInitialized() at resolve time.
-    initLcms().catch(() => {});
     const counterListener = this.counterStore.createCounterListener(
       this.xmldoc.url,
     );
@@ -2903,9 +2900,21 @@ export class OPSDocStore extends Net.ResourceStore<XmlDoc.XMLDocHolder> {
     this.setStyleSheets(authorStyleSheets as any, userStyleSheets as any);
     const frame = Task.newFrame<boolean>("OPSDocStore.init");
     this.validatorSet = CssValidator.baseValidatorSet();
+    let uaLoaded = false;
+    let lcmsLoaded = false;
+    const maybeFinish = () => {
+      if (uaLoaded && lcmsLoaded) {
+        this.triggerSingleDocumentPreprocessing = true;
+        frame.finish(true);
+      }
+    };
     loadUABase().then(() => {
-      this.triggerSingleDocumentPreprocessing = true;
-      frame.finish(true);
+      uaLoaded = true;
+      maybeFinish();
+    });
+    initLcms().then(() => {
+      lcmsLoaded = true;
+      maybeFinish();
     });
     return frame.result();
   }

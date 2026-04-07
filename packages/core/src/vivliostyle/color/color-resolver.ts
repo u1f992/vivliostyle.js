@@ -11,7 +11,7 @@ import { colorToSrgbFloat } from "./resolve";
 import { interpolateColors, normalizeMixPercentages } from "./color-mix";
 import type { ColorMixInput, InterpolationColorSpace } from "./color-mix";
 import { srgbToHsl, srgbToHwb } from "./convert";
-import { isLcmsInitialized, srgbToLab, srgbToOklab, srgbToXyz } from "./lcms";
+import { srgbToLab, srgbToOklab, srgbToXyz } from "./lcms";
 
 /**
  * Calculate relative luminance of an sRGB color.
@@ -100,13 +100,11 @@ function convertOriginToSpace(
     }
 
     case "lab": {
-      if (!isLcmsInitialized()) return null;
       const lab = srgbToLab(originRgb[0], originRgb[1], originRgb[2]);
       return [lab[0], lab[1], lab[2]];
     }
 
     case "lch": {
-      if (!isLcmsInitialized()) return null;
       const lab = srgbToLab(originRgb[0], originRgb[1], originRgb[2]);
       const C = Math.sqrt(lab[1] * lab[1] + lab[2] * lab[2]);
       const H = ((Math.atan2(lab[2], lab[1]) * 180) / Math.PI + 360) % 360;
@@ -114,13 +112,11 @@ function convertOriginToSpace(
     }
 
     case "oklab": {
-      if (!isLcmsInitialized()) return null;
       const oklab = srgbToOklab(originRgb[0], originRgb[1], originRgb[2]);
       return [oklab[0], oklab[1], oklab[2]];
     }
 
     case "oklch": {
-      if (!isLcmsInitialized()) return null;
       const oklab = srgbToOklab(originRgb[0], originRgb[1], originRgb[2]);
       const C = Math.sqrt(oklab[1] * oklab[1] + oklab[2] * oklab[2]);
       const H = ((Math.atan2(oklab[2], oklab[1]) * 180) / Math.PI + 360) % 360;
