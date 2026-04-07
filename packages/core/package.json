@@ -14,7 +14,7 @@
     "test-local": "yarn --cwd test install && yarn --cwd test test-local"
   },
   "dependencies": {
-    "@vivliostyle/lcms": "0.0.0",
+    "@vivliostyle/lcms": "github:u1f992/vivliostyle-lcms",
     "fast-diff": "^1.2.0"
   },
   "devDependencies": {

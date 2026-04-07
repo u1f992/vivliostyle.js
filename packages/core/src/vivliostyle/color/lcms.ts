@@ -1,8 +1,5 @@
 import * as Task from "../task";
-
-type MainModule = import("@vivliostyle/lcms/lib/lcms.js").MainModule;
-type Profile = import("@vivliostyle/lcms/lib/lcms.js").Profile;
-type Transform = import("@vivliostyle/lcms/lib/lcms.js").Transform;
+import type { MainModule, Profile, Transform } from "@vivliostyle/lcms";
 
 let lcms: MainModule | null = null;
 
@@ -13,7 +10,7 @@ export function initLcms(): Task.Result<boolean> {
   const frame: Task.Frame<boolean> = Task.newFrame("initLcms");
   const continuation = frame.suspend();
   (
-    import("@vivliostyle/lcms/lib/lcms.js") as Promise<{
+    import("@vivliostyle/lcms") as Promise<{
       default: (opts?: unknown) => Promise<MainModule>;
     }>
   )
