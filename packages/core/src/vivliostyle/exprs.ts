@@ -1338,11 +1338,30 @@ export class Const extends Val {
   }
 }
 
+export class MediaBooleanTest extends Val {
+  constructor(
+    scope: LexicalScope,
+    public name: MediaName,
+  ) {
+    super(scope);
+  }
+
+  override appendTo(buf: Base.StringBuffer, priority: number): void {
+    buf.append("(");
+    buf.append(Base.escapeCSSStr(this.name.name));
+    buf.append(")");
+  }
+
+  override evaluateCore(context: Context): Result {
+    return context.evalMediaTest(this.name.name, null);
+  }
+}
+
 export class MediaTest extends Val {
   constructor(
     scope: LexicalScope,
     public name: MediaName,
-    public value: Val | null,
+    public value: Val,
   ) {
     super(scope);
   }
