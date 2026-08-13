@@ -41,6 +41,14 @@ export function sendCommand(cmd: Base.JSON): void {
   window["adapt_command"](cmd);
 }
 
+function elementById(id: string): HTMLElement {
+  const element = document.getElementById(id);
+  if (!element) {
+    throw new Error(`E_VIEWER_NO_ELEMENT ${id}`);
+  }
+  return element;
+}
+
 export function navigateToLeftPage(): void {
   sendCommand({
     a: "moveTo",
@@ -229,13 +237,9 @@ export function callback(msg: Base.JSON): void {
       //        window.addEventListener("touchend", /** @type {Function} */
       //        (.touch), false);
       document.body.setAttribute("data-vivliostyle-viewer-status", "complete");
-      const leftButton = document.getElementById(
-        "vivliostyle-page-navigation-left",
-      );
+      const leftButton = elementById("vivliostyle-page-navigation-left");
       leftButton.addEventListener("click", navigateToLeftPage, false);
-      const rightButton = document.getElementById(
-        "vivliostyle-page-navigation-right",
-      );
+      const rightButton = elementById("vivliostyle-page-navigation-right");
       rightButton.addEventListener("click", navigateToRightPage, false);
       [leftButton, rightButton].forEach((button) => {
         button.setAttribute("data-vivliostyle-ui-state", "attention");
