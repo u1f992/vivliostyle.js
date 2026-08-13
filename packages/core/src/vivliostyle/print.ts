@@ -117,7 +117,11 @@ class VivliostylePrint {
           const message =
             payload.content.error?.toString() ??
             payload.content.messages.join("\n");
-          this.errorCallback(message);
+          const errorCallback = this.errorCallback;
+          if (!errorCallback) {
+            throw new TypeError("errorCallback is not a function");
+          }
+          errorCallback.call(this, message);
         });
       }
 
