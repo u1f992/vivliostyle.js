@@ -88,21 +88,21 @@ class VivliostylePrint {
 
   runInIframe(iframeWin: Window) {
     this.iframeWin = iframeWin;
-    return this.preparePrint()
+    return this.preparePrint(iframeWin)
       .then(() => this.browserPrint())
       .then(() => this.cleanUp());
   }
 
-  preparePrint() {
-    this.iframeWin.document.title = this.title;
+  preparePrint(iframeWin: Window) {
+    iframeWin.document.title = this.title;
     const docBlob = new Blob([this.htmlDoc], {
         type: "text/html",
       }),
       docURL = URL.createObjectURL(docBlob),
       Viewer = new CoreViewer({
-        viewportElement: this.iframeWin.document.body
+        viewportElement: iframeWin.document.body
           .firstElementChild as HTMLElement,
-        window: this.iframeWin,
+        window: iframeWin,
         debug: true,
       });
     return new Promise<void>((resolve) => {
@@ -132,7 +132,11 @@ class VivliostylePrint {
   }
 
   browserPrint() {
-    this.printCallback(this.iframeWin);
+    const iframeWin = this.iframeWin;
+    if (!iframeWin) {
+      throw new TypeError("the print instance has no iframe window");
+    }
+    this.printCallback(iframeWin);
   }
 
   cleanUp() {
