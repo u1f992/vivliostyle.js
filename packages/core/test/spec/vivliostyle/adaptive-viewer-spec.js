@@ -626,6 +626,68 @@ describe("AdaptiveViewer", function () {
     viewer.initEmbed({ a: "probe" });
   }, 2000);
 
+  it("requests a resize of an existing OPFView when the pass limit changes", function () {
+    var viewer = Object.create(adapt_adaptive_viewer.AdaptiveViewer.prototype);
+    viewer.maxTargetReferenceLayoutPasses = 8;
+    viewer.opfView = {};
+    viewer.viewport = {};
+    viewer.needResize = false;
+    viewer.configurePlugins = function () {};
+
+    viewer.configure({ maxTargetReferenceLayoutPasses: 3 });
+
+    expect(viewer.maxTargetReferenceLayoutPasses).toBe(3);
+    expect(viewer.needResize).toBe(true);
+    expect(viewer.viewport).toBeNull();
+
+    var viewport = {};
+    viewer.viewport = viewport;
+    viewer.needResize = false;
+    viewer.configure({ maxTargetReferenceLayoutPasses: 3 });
+
+    expect(viewer.needResize).toBe(false);
+    expect(viewer.viewport).toBe(viewport);
+
+    viewer.opfView = null;
+    viewer.configure({ maxTargetReferenceLayoutPasses: 5 });
+    expect(viewer.maxTargetReferenceLayoutPasses).toBe(5);
+    expect(viewer.needResize).toBe(false);
+    expect(viewer.viewport).toBe(viewport);
+
+    viewer.opfView = {};
+    viewer.configure({ maxTargetReferenceLayoutPasses: 100 });
+    expect(viewer.maxTargetReferenceLayoutPasses).toBe(100);
+    expect(viewer.needResize).toBe(true);
+    expect(viewer.viewport).toBeNull();
+
+    viewer.viewport = viewport;
+    viewer.needResize = false;
+    viewer.configure({ maxTargetReferenceLayoutPasses: 1 });
+    expect(viewer.maxTargetReferenceLayoutPasses).toBe(1);
+    expect(viewer.needResize).toBe(true);
+    expect(viewer.viewport).toBeNull();
+  });
+
+  it("ignores an invalid layout pass limit", function () {
+    var viewer = Object.create(adapt_adaptive_viewer.AdaptiveViewer.prototype);
+    viewer.maxTargetReferenceLayoutPasses = 3;
+    viewer.opfView = {};
+    var viewport = {};
+    viewer.viewport = viewport;
+    viewer.needResize = false;
+    viewer.configurePlugins = function () {};
+
+    viewer.configure({});
+    viewer.configure({ maxTargetReferenceLayoutPasses: 0 });
+    viewer.configure({ maxTargetReferenceLayoutPasses: NaN });
+    viewer.configure({ maxTargetReferenceLayoutPasses: 1.5 });
+    viewer.configure({ maxTargetReferenceLayoutPasses: "8" });
+
+    expect(viewer.maxTargetReferenceLayoutPasses).toBe(3);
+    expect(viewer.needResize).toBe(false);
+    expect(viewer.viewport).toBe(viewport);
+  });
+
   it("reports that a spread page is not rendered yet", function (done) {
     adapt_task.start(function () {
       var viewer = Object.create(

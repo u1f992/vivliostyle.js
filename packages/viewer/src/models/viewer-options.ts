@@ -20,6 +20,7 @@
 
 import {
   CoreViewerOptions,
+  DEFAULT_MAX_TARGET_REFERENCE_LAYOUT_PASSES,
   PageViewMode as CorePageViewMode,
 } from "@vivliostyle/core";
 import ko, { Observable } from "knockout";
@@ -41,6 +42,7 @@ interface ViewerOptionsType {
   zoom: ZoomOptions;
   pixelRatio: number;
   enableMarker: boolean;
+  maxTargetReferenceLayoutPasses: number;
 }
 
 function getViewerOptionsFromURL(): ViewerOptionsType {
@@ -65,6 +67,13 @@ function getViewerOptionsFromURL(): ViewerOptionsType {
   const pixelRatioStr = urlParameters.getParameter("pixelRatio")[0];
   const pixelRatio = pixelRatioStr && parseFloat(pixelRatioStr);
 
+  const maxTargetReferenceLayoutPassesStr = urlParameters.getParameter(
+    "maxTargetReferenceLayoutPasses",
+  )[0];
+  const maxTargetReferenceLayoutPasses = maxTargetReferenceLayoutPassesStr
+    ? Number(maxTargetReferenceLayoutPassesStr)
+    : null;
+
   return {
     allowScripts:
       allowScripts === "true" ? true : allowScripts === "false" ? false : null,
@@ -88,6 +97,7 @@ function getViewerOptionsFromURL(): ViewerOptionsType {
     pixelRatio,
     enableMarker:
       enableMarker === "true" ? true : enableMarker === "false" ? false : null,
+    maxTargetReferenceLayoutPasses,
   };
 }
 
@@ -101,6 +111,7 @@ function getDefaultValues(): ViewerOptionsType {
     zoom: ZoomOptions.createDefaultOptions(),
     pixelRatio: 8,
     enableMarker: false,
+    maxTargetReferenceLayoutPasses: DEFAULT_MAX_TARGET_REFERENCE_LAYOUT_PASSES,
   };
 }
 
@@ -117,6 +128,7 @@ class ViewerOptions {
   zoom: Observable<ZoomOptions>;
   pixelRatio: Observable<number>;
   enableMarker: Observable<boolean>;
+  maxTargetReferenceLayoutPasses: Observable<number>;
 
   static getDefaultValues: () => {
     allowScripts: boolean;
@@ -127,6 +139,7 @@ class ViewerOptions {
     zoom: ZoomOptions;
     pixelRatio: number;
     enableMarker: boolean;
+    maxTargetReferenceLayoutPasses: number;
   };
 
   constructor(defaultRenderAllPages: boolean);
@@ -145,6 +158,7 @@ class ViewerOptions {
     this.zoom = ko.observable();
     this.pixelRatio = ko.observable();
     this.enableMarker = ko.observable();
+    this.maxTargetReferenceLayoutPasses = ko.observable();
 
     if (options) {
       this.copyFrom(options);
@@ -159,6 +173,10 @@ class ViewerOptions {
       this.zoom(urlOptions.zoom || defaultValues.zoom);
       this.pixelRatio(urlOptions.pixelRatio ?? defaultValues.pixelRatio);
       this.enableMarker(urlOptions.enableMarker || defaultValues.enableMarker);
+      this.maxTargetReferenceLayoutPasses(
+        urlOptions.maxTargetReferenceLayoutPasses ??
+          defaultValues.maxTargetReferenceLayoutPasses,
+      );
 
       // write spread parameter back to URL when updated
       this.pageViewMode.subscribe((pageViewMode) => {
@@ -225,6 +243,7 @@ class ViewerOptions {
     this.zoom(other.zoom());
     this.pixelRatio(other.pixelRatio());
     this.enableMarker(other.enableMarker());
+    this.maxTargetReferenceLayoutPasses(other.maxTargetReferenceLayoutPasses());
   }
 
   toObject(): CoreViewerOptions {
@@ -236,6 +255,7 @@ class ViewerOptions {
       fitToScreen: this.zoom().fitToScreen,
       zoom: this.zoom().zoom,
       pixelRatio: this.pixelRatio(),
+      maxTargetReferenceLayoutPasses: this.maxTargetReferenceLayoutPasses(),
     };
   }
 }

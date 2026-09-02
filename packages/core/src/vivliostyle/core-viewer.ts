@@ -78,6 +78,11 @@ export type CoreViewerSettings = {
  * - pixelRatio: Set output pixel ratio. Enables very thin border width and
  *   improves layout precision, emulating high pixel ratio.
  *   default: 8. Set 0 to disable pixel ratio emulation.
+ * - maxTargetReferenceLayoutPasses: Number of layout passes in each of the
+ *   free and pinned phases while resolving target references whose values
+ *   change the pagination; when the passes run out, the remaining values are
+ *   frozen with a warning.
+ *   default: 8
  */
 export type CoreViewerOptions = {
   autoResize?: boolean;
@@ -90,6 +95,7 @@ export type CoreViewerOptions = {
   defaultPaperSize?: { width: number; height: number };
   allowScripts?: boolean;
   pixelRatio?: number;
+  maxTargetReferenceLayoutPasses?: number;
 };
 
 function getDefaultViewerOptions(): CoreViewerOptions {
@@ -104,6 +110,8 @@ function getDefaultViewerOptions(): CoreViewerOptions {
     defaultPaperSize: undefined,
     allowScripts: true,
     pixelRatio: 8,
+    maxTargetReferenceLayoutPasses:
+      Constants.DEFAULT_MAX_TARGET_REFERENCE_LAYOUT_PASSES,
   };
 }
 

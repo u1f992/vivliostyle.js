@@ -70,6 +70,12 @@ export type SingleDocumentParam = {
   skipPagesBefore: number | null;
 };
 
+function isValidMaxTargetReferenceLayoutPasses(
+  value: unknown,
+): value is number {
+  return typeof value === "number" && Number.isSafeInteger(value) && value > 0;
+}
+
 export class AdaptiveViewer {
   fontMapper: Font.Mapper;
   kick: () => void;
@@ -432,6 +438,18 @@ export class AdaptiveViewer {
     }
     if (typeof command["renderAllPages"] == "boolean") {
       this.renderAllPages = command["renderAllPages"];
+    }
+    const maxTargetReferenceLayoutPasses =
+      command["maxTargetReferenceLayoutPasses"];
+    if (
+      isValidMaxTargetReferenceLayoutPasses(maxTargetReferenceLayoutPasses) &&
+      maxTargetReferenceLayoutPasses !== this.maxTargetReferenceLayoutPasses
+    ) {
+      this.maxTargetReferenceLayoutPasses = maxTargetReferenceLayoutPasses;
+      if (this.opfView) {
+        this.viewport = null;
+        this.needResize = true;
+      }
     }
     // for backward compatibility
     if (typeof command["userAgentRootURL"] == "string") {

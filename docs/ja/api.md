@@ -8,6 +8,7 @@
     - [`PageProgression`](#constantspageprogression)
     - [`PageSide`](#constantspageside)
     - [`ReadyState`](#constantsreadystate)
+    - [`DEFAULT_MAX_TARGET_REFERENCE_LAYOUT_PASSES`](#constantsdefault_max_target_reference_layout_passes)
   - [plugin](#plugin)
     - [`registerHook(name, fn)`](#pluginregisterhookname-fn)
     - [`removeHook(name, fn)`](#pluginremovehookname-fn)
@@ -60,6 +61,10 @@ Enum `PageSide` represents page side.
 
 Enum `ReadyState` represents viewer ready state.
 `ReadyState` has members, `LOADING`, `INTERACTIVE` and `COMPLETE`.
+
+### `constants.DEFAULT_MAX_TARGET_REFERENCE_LAYOUT_PASSES`
+
+The default value of the `maxTargetReferenceLayoutPasses` viewer option, `8`.
 
 ## plugin
 
@@ -289,6 +294,7 @@ Viewer options that can be set after the Viewer object is constructed.
 - `zoom` (number, optional) — Zoom factor with which pages are displayed. default: 1
 - `fitToScreen` (boolean, optional) — Auto adjust zoom factor to fit the screen. default: false
 - `defaultPaperSize` ({width: number, height: number}, optional) — Default paper size in px. Effective when @page size is set to auto. default: undefined (means the windows size is used as paper size).
+- `maxTargetReferenceLayoutPasses` (number, optional) — Number of layout passes in each of the free and pinned phases of resolving `target-counter()`, `target-counters()`, and `target-text()` references whose values change the pagination; when the passes run out, the remaining reference values are frozen with a warning. Changing the value lays out a loaded document again; a specified value that is not a positive integer is ignored. default: 8
 
 ## print
 

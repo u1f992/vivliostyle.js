@@ -110,6 +110,8 @@ Vivliostyle Viewer の画面右上の設定ボタン<img alt="Settings (S)" src=
   - **auto** (デフォルト): 自動見開き表示
 - &amp;**style**=&lt;追加の（カスタム）スタイルシートのURL>
 - &amp;**userStyle**=&lt;ユーザー・スタイルシートのURL>
+- &amp;**maxTargetReferenceLayoutPasses**=&lt;正の整数> (デフォルト: 8)
+  - 値がページ分割を変える相互参照（`target-counter()`、`target-counters()`、`target-text()`）を収束させる free と pinned の各フェーズで費やすレイアウトパスの回数。
 
 オプションは設定パネル（<img src="../../assets/vivliostyle-icon.png" width="16" height="16" alt="[Vivliostyle]" />**Settings**）でも設定できます。
 

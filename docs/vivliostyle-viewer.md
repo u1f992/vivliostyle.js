@@ -60,6 +60,8 @@ Access to <https://vivliostyle.org/viewer/>.
   - **auto** (default): Auto spread view
 - &amp;**style**=&lt;additional (custom) stylesheet URL>
 - &amp;**userStyle**=&lt;user stylesheet URL>
+- &amp;**maxTargetReferenceLayoutPasses**=&lt;positive integer> (default: 8)
+  - The number of layout passes spent in each of the free and pinned phases of settling cross-references (`target-counter()`, `target-counters()`, and `target-text()`) whose values change the pagination.
 
 Options can also be set in the <img src="../assets/vivliostyle-icon.png" width="16" height="16" alt="[Vivliostyle]" />**Settings** panel.
 

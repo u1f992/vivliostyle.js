@@ -191,6 +191,7 @@ class ViewerApp {
     urlParameters.removeParameter("profile", true);
     urlParameters.removeParameter("debug", true);
     urlParameters.removeParameter("pixelRatio", true);
+    urlParameters.removeParameter("maxTargetReferenceLayoutPasses", true);
     urlParameters.removeParameter("restoreView", true);
     urlParameters.removeParameter("lng", true);
 
