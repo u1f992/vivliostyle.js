@@ -26,6 +26,8 @@ export function setDebug(value: boolean): void {
   isDebug = value;
 }
 
+export const DEFAULT_MAX_TARGET_REFERENCE_LAYOUT_PASSES = 8;
+
 /**
  * Page progression direction.
  * @enum {string}

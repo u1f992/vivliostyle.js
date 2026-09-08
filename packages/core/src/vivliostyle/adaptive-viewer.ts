@@ -86,6 +86,8 @@ export class AdaptiveViewer {
   needResize: boolean = false;
   resized: boolean = false;
   needRefresh: boolean = false;
+  needReshow: boolean = false;
+  private reportPositionAfterReshow: boolean = false;
   viewportSize: ViewportSize | null = null;
   currentPage: Vtree.Page | null = null;
   currentSpread: Vtree.Spread | null = null;
@@ -96,6 +98,8 @@ export class AdaptiveViewer {
   pageViewMode: PageViewMode = PageViewMode.SINGLE_PAGE;
   waitForLoading: boolean = false;
   renderAllPages: boolean = true;
+  maxTargetReferenceLayoutPasses =
+    Constants.DEFAULT_MAX_TARGET_REFERENCE_LAYOUT_PASSES;
   pref: Exprs.Preferences = Exprs.defaultPreferences();
   pageSizes: { width: number; height: number }[] = [];
 
@@ -512,14 +516,46 @@ export class AdaptiveViewer {
   pageReplacedListener(evt: Base.Event) {
     const currentPage = this.currentPage;
     const spread = this.currentSpread;
-    const target = evt.target;
-    if (spread) {
-      if (spread.left === target || spread.right === target) {
-        this.showCurrent(evt.newPage);
-      }
-    } else if (currentPage === evt.target) {
-      this.showCurrent(evt.newPage);
+    const target = evt.target as Vtree.Page;
+    const replacementPage = evt.newPage as Vtree.Page;
+    const displayedPageWasReplaced =
+      currentPage === target ||
+      spread?.left === target ||
+      spread?.right === target;
+    if (!displayedPageWasReplaced) {
+      return;
     }
+    target.removeEventListener("hyperlink", this.hyperlinkListener, false);
+    target.removeEventListener("replaced", this.pageReplacedListener, false);
+    const selectedPage =
+      currentPage === target
+        ? replacementPage
+        : (currentPage ?? replacementPage);
+    if (spread) {
+      const left = spread.left === target ? replacementPage : spread.left;
+      const right = spread.right === target ? replacementPage : spread.right;
+      const shownSpread =
+        left === right
+          ? replacementPage.side === Constants.PageSide.LEFT
+            ? { left: replacementPage, right: null }
+            : { left: null, right: replacementPage }
+          : { left, right };
+      this.showSpread(shownSpread);
+      this.setSpreadZoom(shownSpread);
+    } else {
+      this.showPage(selectedPage);
+      this.setPageZoom(selectedPage);
+    }
+    this.currentPage = selectedPage;
+    if (
+      (currentPage === target || currentPage === replacementPage) &&
+      evt.newPosition
+    ) {
+      this.pagePosition = evt.newPosition;
+      this.reportPositionAfterReshow = true;
+    }
+    this.needReshow = true;
+    this.kick();
   }
 
   /**
@@ -753,12 +789,36 @@ export class AdaptiveViewer {
   }
 
   private setPageSize(
-    pageSize: { width: number; height: number },
+    pageSize: { width: number; height: number } | null,
     pageSheetSize: { [key: string]: { width: number; height: number } },
     spineIndex: number,
     pageIndex: number,
+    pageCountDelta: number,
   ) {
-    this.pageSizes[pageIndex] = pageSize;
+    if (!pageSize) {
+      Asserts.assert(pageCountDelta < 0);
+      this.pageSizes.splice(pageIndex, -pageCountDelta);
+      this.removePageSizePageRules();
+      const firstPageSizeIndex = this.pageSizes.findIndex((size) => !!size);
+      if (firstPageSizeIndex >= 0) {
+        this.setPageSizePageRules(firstPageSizeIndex);
+      }
+      return;
+    }
+    if (pageCountDelta > 0) {
+      Asserts.assert(pageIndex <= this.pageSizes.length);
+      this.pageSizes.splice(pageIndex, 0, pageSize);
+    } else {
+      const replacedPageSize = this.pageSizes[pageIndex];
+      this.pageSizes[pageIndex] = pageSize;
+      if (
+        replacedPageSize &&
+        (replacedPageSize.width !== pageSize.width ||
+          replacedPageSize.height !== pageSize.height)
+      ) {
+        this.removePageSizePageRules();
+      }
+    }
     this.setPageSizePageRules(pageIndex);
     if (
       pageIndex === 0 &&
@@ -766,23 +826,6 @@ export class AdaptiveViewer {
       !this.opfView.hasAutoSizedPages()
     ) {
       this.updateSpreadView(this.resolveSpreadView(this.viewport, pageSize));
-    }
-  }
-
-  private truncatePageSizes(pageCount: number) {
-    if (this.pageSizes.length > pageCount) {
-      this.pageSizes.splice(pageCount);
-    }
-    this.removePageSizePageRules();
-    let lastPageSizeIndex = this.pageSizes.length - 1;
-    while (
-      lastPageSizeIndex >= 0 &&
-      this.pageSizes[lastPageSizeIndex] == null
-    ) {
-      lastPageSizeIndex--;
-    }
-    if (lastPageSizeIndex >= 0) {
-      this.setPageSizePageRules(lastPageSizeIndex);
     }
   }
 
@@ -872,8 +915,8 @@ export class AdaptiveViewer {
       this.fontMapper,
       this.pref,
       this.setPageSize.bind(this),
+      this.maxTargetReferenceLayoutPasses,
       this.cmykReserveMap,
-      this.truncatePageSizes.bind(this),
     );
     if (tocVisible) {
       this.sendCommand({ a: "toc", v: "show", autohide: tocAutohide });
@@ -883,12 +926,17 @@ export class AdaptiveViewer {
   /**
    * Show current page or spread depending on the setting
    * (this.pref.spreadView).
-   * @param sync If true, get the necessary page synchronously (not waiting
-   *     another rendering task)
+   * @param sync If true, lay out missing pages in this task instead of
+   *     waiting for a rendering task to produce them
+   * @param renderedOnly If true, build the spread from the rendered pages
+   *     only and report whether a page of it is still missing
    */
-  private showCurrent(page: Vtree.Page, sync?: boolean): Task.Result<null> {
+  private showCurrent(
+    page: Vtree.Page,
+    sync?: boolean,
+    renderedOnly: boolean = false,
+  ): Task.Result<boolean> {
     this.needRefresh = false;
-    this.removePageListeners();
 
     const spreadView = this.resolveSpreadView(this.viewport, page.dimensions);
     if (spreadView !== this.pref.spreadView) {
@@ -897,10 +945,10 @@ export class AdaptiveViewer {
 
     if (spreadView) {
       return this.opfView
-        .getSpread(this.pagePosition, !!sync)
+        .getSpread(this.pagePosition, !!sync, renderedOnly)
         .thenAsync((spread) => {
           if (!spread.left && !spread.right) {
-            return Task.newResult(null);
+            return Task.newResult(false);
           }
           if (
             spread.left &&
@@ -914,19 +962,28 @@ export class AdaptiveViewer {
             this.showPage(page);
             this.setPageZoom(page);
             this.currentPage = page;
-            return Task.newResult(null);
+            return Task.newResult(true);
           }
-          this.showSpread(spread);
+          if (
+            !this.currentSpread ||
+            this.currentSpread.left !== spread.left ||
+            this.currentSpread.right !== spread.right
+          ) {
+            this.showSpread(spread);
+          }
+          this.currentSpread = spread;
           this.setSpreadZoom(spread);
           this.currentPage =
-            page.side === Constants.PageSide.LEFT ? spread.left : spread.right;
-          return Task.newResult(null);
+            (page.side === Constants.PageSide.LEFT
+              ? spread.left
+              : spread.right) ?? page;
+          return Task.newResult(!spread.pairingPending);
         });
     } else {
       this.showPage(page);
       this.setPageZoom(page);
       this.currentPage = page;
-      return Task.newResult(null);
+      return Task.newResult(true);
     }
   }
 
@@ -1016,7 +1073,7 @@ export class AdaptiveViewer {
 
   private cancelRenderingTask() {
     if (this.renderTask) {
-      this.renderTask.interrupt(new RenderingCanceledError());
+      this.renderTask.interrupt(new Epub.RenderingCanceledError());
     }
     this.renderTask = null;
   }
@@ -1027,6 +1084,8 @@ export class AdaptiveViewer {
     if (this.sizeIsGood()) {
       return Task.newResult(true);
     }
+    this.needReshow = false;
+    this.reportPositionAfterReshow = false;
     this.setReadyState(Constants.ReadyState.LOADING);
     this.cancelRenderingTask();
     const resizeTask = Task.currentTask()
@@ -1134,7 +1193,7 @@ export class AdaptiveViewer {
               });
           },
           (frame, err) => {
-            if (err instanceof RenderingCanceledError) {
+            if (err instanceof Epub.RenderingCanceledError) {
               Profile.profiler.registerEndTiming("render (resize)");
               Logging.logger.debug(err.message);
             } else {
@@ -1329,7 +1388,11 @@ export class AdaptiveViewer {
         }
       },
       (frame, err) => {
-        Logging.logger.error(err, "Error during action:", actionName);
+        if (err instanceof Epub.RenderingCanceledError) {
+          Logging.logger.debug(err, "Action canceled:", actionName);
+        } else {
+          Logging.logger.error(err, "Error during action:", actionName);
+        }
         frame.finish(true);
       },
     );
@@ -1362,9 +1425,11 @@ export class AdaptiveViewer {
           });
         }
       };
+      let reshowWaitsForRendering = false;
       frame
         .loopWithFrame((loopFrame) => {
           if (viewer.needResize) {
+            reshowWaitsForRendering = false;
             viewer.resize().then(() => {
               loopFrame.continueLoop();
             });
@@ -1376,10 +1441,47 @@ export class AdaptiveViewer {
                   loopFrame.continueLoop();
                 });
             }
+          } else if (viewer.needReshow && !reshowWaitsForRendering) {
+            const reportPosition = viewer.reportPositionAfterReshow;
+            viewer.reportPositionAfterReshow = false;
+            const page = viewer.currentPage;
+            if (!page) {
+              viewer.needReshow = false;
+              loopFrame.continueLoop();
+              return;
+            }
+            const renderingInAnotherTask =
+              !!viewer.opfView?.isRenderingOrResolvingInAnotherTask();
+            viewer.needReshow = false;
+            viewer
+              .showCurrent(page, !viewer.renderAllPages, renderingInAnotherTask)
+              .then((shown) => {
+                if (!shown) {
+                  viewer.reportPositionAfterReshow ||= reportPosition;
+                  if (renderingInAnotherTask) {
+                    viewer.needReshow = true;
+                    reshowWaitsForRendering = true;
+                  }
+                  loopFrame.continueLoop();
+                } else if (reportPosition && viewer.currentPage) {
+                  viewer.reportPosition().then(() => {
+                    loopFrame.continueLoop();
+                  });
+                } else {
+                  viewer.reportPositionAfterReshow ||= reportPosition;
+                  loopFrame.continueLoop();
+                }
+              });
           } else if (command) {
             const cmd = command;
             command = null;
             viewer.runCommand(cmd).then(() => {
+              loopFrame.continueLoop();
+            });
+          } else if (reshowWaitsForRendering) {
+            loopFrame.sleep(100).then(() => {
+              reshowWaitsForRendering = false;
+              viewer.needReshow = true;
               loopFrame.continueLoop();
             });
           } else {
@@ -1418,23 +1520,6 @@ export class AdaptiveViewer {
  */
 export enum ZoomType {
   FIT_INSIDE_VIEWPORT = "fit inside viewport",
-}
-
-/**
- * Error representing that the rendering has been canceled.
- */
-class RenderingCanceledError extends Error {
-  name: string = "RenderingCanceledError";
-  message: string = "Page rendering has been canceled";
-  stack: string;
-
-  constructor() {
-    super();
-    // Set the prototype explicitly.
-    // https://github.com/Microsoft/TypeScript/wiki/Breaking-Changes#extending-built-ins-like-error-array-and-map-may-no-longer-work
-    Object.setPrototypeOf(this, RenderingCanceledError.prototype);
-    this.stack = new Error().stack ?? "";
-  }
 }
 
 export function maybeParse(cmd: any): Base.JSON {

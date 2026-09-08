@@ -2521,16 +2521,28 @@ export interface CounterResolver {
    */
   getPageCountersVal(name: string, format: (p1: number[]) => string): Exprs.Val;
 
+  /**
+   * @param formatKey Identifies `format` among the expressions created by the
+   *     same resolver: two calls with the same url, name, and formatKey must
+   *     format the same number to the same string.
+   */
   getTargetCounterVal(
     url: string,
     name: string,
     format: (p1: number | null) => string,
+    formatKey: string,
   ): Exprs.Val;
 
+  /**
+   * @param formatKey Identifies `format` among the expressions created by the
+   *     same resolver: two calls with the same url, name, and formatKey must
+   *     format the same numbers to the same string.
+   */
   getTargetCountersVal(
     url: string,
     name: string,
     format: (p1: number[]) => string,
+    formatKey: string,
   ): Exprs.Val;
 
   /**
@@ -3128,6 +3140,7 @@ export class ContentPropVisitor extends Css.FilterVisitor {
         targetUrlStr,
         counterName,
         (numval) => this.format(numval || 0, type),
+        type,
       ),
     );
     return new Css.SpaceList([c]);
@@ -3156,6 +3169,7 @@ export class ContentPropVisitor extends Css.FilterVisitor {
             return this.format(0, type);
           }
         },
+        JSON.stringify([type, separator]),
       ),
     );
     return new Css.SpaceList([c]);

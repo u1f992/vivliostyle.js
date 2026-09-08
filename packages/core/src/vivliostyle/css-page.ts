@@ -2699,7 +2699,7 @@ export class PageManager {
   /**
    * Determine the page progression and define left/right/recto/verso pages.
    */
-  private definePageProgression() {
+  definePageProgression() {
     // If a page break is forced before the root element, recto/verso pages
     // are no longer odd/even pages. left/right are reversed too.
     const scope = this.pageScope;

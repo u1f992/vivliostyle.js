@@ -325,6 +325,7 @@ export class StyleInstance
   pageBreaks: { [key: string]: boolean } = {};
   pageProgression: Constants.PageProgression | null = null;
   isVersoFirstPage: boolean = false;
+  private readonly versoFirstPageByDefault: boolean;
   blankPageAtStart: boolean = false;
   pageSheetSize: { [key: string]: { width: number; height: number } } = {};
   pageSheetHeight: number = 0;
@@ -348,7 +349,7 @@ export class StyleInstance
     public readonly fontMapper: Font.Mapper,
     public readonly customRenderer: Vgen.CustomRenderer,
     public readonly fallbackMap: { [key: string]: string },
-    public readonly pageNumberOffset: number,
+    public pageNumberOffset: number,
     public readonly documentURLTransformer: Base.DocumentURLTransformer,
     public readonly counterStore: Counters.CounterStore,
     public readonly cmykStore: CmykStore.CmykStore,
@@ -370,7 +371,8 @@ export class StyleInstance
     this.rootPageFloatLayoutContext =
       PageFloats.RootPageFloatLayoutContext.createRoot();
     this.pageProgression = pageProgression || null;
-    this.isVersoFirstPage = !!isVersoFirstPage;
+    this.versoFirstPageByDefault = !!isVersoFirstPage;
+    this.isVersoFirstPage = this.versoFirstPageByDefault;
     for (const flowName in style.flowProps) {
       const flowStyle = style.flowProps[flowName];
       const consume = CssCascade.getProp(flowStyle, "flow-consume");
@@ -423,13 +425,7 @@ export class StyleInstance
 
     // Check the spread break at beginning of a document that may cause
     // the first page verso side or cause a blank page (issue #666)
-    if (!this.matchStartPageSide(this.styler.breakBeforeValues[0])) {
-      if (this.pageNumberOffset === 0) {
-        this.isVersoFirstPage = true;
-      } else {
-        this.blankPageAtStart = true;
-      }
-    }
+    this.applyPageNumberOffset(this.pageNumberOffset);
 
     const rootBox = this.style.rootBox;
     this.rootPageBoxInstance = new PageMaster.RootPageBoxInstance(rootBox);
@@ -581,6 +577,23 @@ export class StyleInstance
         return !isRectoStart;
       default:
         return true;
+    }
+  }
+
+  applyPageNumberOffset(pageNumberOffset: number): void {
+    const wasVersoFirstPage = this.isVersoFirstPage;
+    this.pageNumberOffset = pageNumberOffset;
+    this.blankPageAtStart = false;
+    this.isVersoFirstPage = this.versoFirstPageByDefault;
+    if (!this.matchStartPageSide(this.styler.breakBeforeValues[0])) {
+      if (pageNumberOffset === 0) {
+        this.isVersoFirstPage = true;
+      } else {
+        this.blankPageAtStart = true;
+      }
+    }
+    if (this.pageManager && this.isVersoFirstPage !== wasVersoFirstPage) {
+      this.pageManager.definePageProgression();
     }
   }
 

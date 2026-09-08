@@ -27,6 +27,183 @@ import * as vivliostyle_plugin from "../../../src/vivliostyle/plugin";
 import * as vivliostyle_test_util_mock_plugin from "../../util/mock/vivliostyle/plugin-mock";
 
 describe("css-cascade", function () {
+  describe("ContentPropVisitor", function () {
+    function registrationsOf(visit) {
+      var registrations = [];
+      var counterResolver = {
+        getTargetCounterVal: function (url, name, format, formatKey) {
+          registrations.push({
+            url: url,
+            name: name,
+            format: format,
+            formatKey: formatKey,
+          });
+          return new adapt_exprs.Const(null, "");
+        },
+        getTargetCountersVal: function (url, name, format, formatKey) {
+          registrations.push({
+            url: url,
+            name: name,
+            format: format,
+            formatKey: formatKey,
+          });
+          return new adapt_exprs.Const(null, "");
+        },
+      };
+      var cascade = {
+        counterStyleStore: {
+          format: function (type, num) {
+            return type + ":" + num;
+          },
+        },
+      };
+      var visitor = new adapt_csscasc.ContentPropVisitor(
+        cascade,
+        null,
+        counterResolver,
+        {},
+      );
+      visit(visitor);
+      return registrations;
+    }
+
+    function formatKeysOf(visit) {
+      return registrationsOf(visit).map(function (registration) {
+        return registration.formatKey;
+      });
+    }
+
+    it("keys the target-counter format by its counter style", function () {
+      var formatKeys = formatKeysOf(function (visitor) {
+        visitor.visitFuncTargetCounter([
+          new adapt_css.URL("#target"),
+          adapt_css.getName("page"),
+        ]);
+        visitor.visitFuncTargetCounter([
+          new adapt_css.URL("#target"),
+          adapt_css.getName("page"),
+          adapt_css.getName("decimal"),
+        ]);
+        visitor.visitFuncTargetCounter([
+          new adapt_css.URL("#target"),
+          adapt_css.getName("page"),
+          adapt_css.getName("lower-roman"),
+        ]);
+      });
+      expect(formatKeys.length).toBe(3);
+      expect(formatKeys[0]).toBe(formatKeys[1]);
+      expect(formatKeys[2]).not.toBe(formatKeys[1]);
+    });
+
+    it("keys the same target-counters call identically across visitors", function () {
+      var visit = function (visitor) {
+        visitor.visitFuncTargetCounters([
+          new adapt_css.URL("#target"),
+          adapt_css.getName("chapter"),
+          new adapt_css.Str("."),
+          adapt_css.getName("lower-roman"),
+        ]);
+      };
+      var first = registrationsOf(visit);
+      var second = registrationsOf(visit);
+      expect(first.length).toBe(1);
+      expect(first[0].formatKey).toBeDefined();
+      expect(second[0].formatKey).toBe(first[0].formatKey);
+      expect(second[0].format([1, 2])).toBe("lower-roman:1.lower-roman:2");
+    });
+
+    it("formats the same number the same way under the same target-counter key", function () {
+      var registrations = registrationsOf(function (visitor) {
+        visitor.visitFuncTargetCounter([
+          new adapt_css.URL("#target"),
+          adapt_css.getName("page"),
+        ]);
+        visitor.visitFuncTargetCounter([
+          new adapt_css.URL("#target"),
+          adapt_css.getName("page"),
+          adapt_css.getName("decimal"),
+        ]);
+        visitor.visitFuncTargetCounter([
+          new adapt_css.URL("#target"),
+          adapt_css.getName("page"),
+          adapt_css.getName("lower-roman"),
+        ]);
+      });
+      expect(registrations[0].url).toBe("#target");
+      expect(registrations[0].name).toBe("page");
+      expect(registrations[1].formatKey).toBe(registrations[0].formatKey);
+      expect(registrations[0].format(4)).toBe("decimal:4");
+      expect(registrations[1].format(4)).toBe(registrations[0].format(4));
+      expect(registrations[2].format(4)).toBe("lower-roman:4");
+    });
+
+    it("formats the same numbers the same way under the same target-counters key", function () {
+      var registrations = registrationsOf(function (visitor) {
+        visitor.visitFuncTargetCounters([
+          new adapt_css.URL("#target"),
+          adapt_css.getName("chapter"),
+          new adapt_css.Str("."),
+        ]);
+        visitor.visitFuncTargetCounters([
+          new adapt_css.URL("#target"),
+          adapt_css.getName("chapter"),
+          new adapt_css.Str("-"),
+          adapt_css.getName("lower-roman"),
+        ]);
+        visitor.visitFuncTargetCounters([
+          new adapt_css.URL("#target"),
+          adapt_css.getName("chapter"),
+          new adapt_css.Str("."),
+          adapt_css.getName("decimal"),
+        ]);
+      });
+      expect(registrations.length).toBe(3);
+      expect(registrations[0].url).toBe("#target");
+      expect(registrations[0].name).toBe("chapter");
+      expect(registrations[2].formatKey).toBe(registrations[0].formatKey);
+      expect(registrations[2].format([1, 2])).toBe(
+        registrations[0].format([1, 2]),
+      );
+      expect(registrations[0].format([1, 2])).toBe("decimal:1.decimal:2");
+      expect(registrations[1].format([1, 2])).toBe(
+        "lower-roman:1-lower-roman:2",
+      );
+      expect(registrations[0].format([])).toBe("decimal:0");
+    });
+
+    it("keys the target-counters format by its counter style and separator", function () {
+      var formatKeys = formatKeysOf(function (visitor) {
+        visitor.visitFuncTargetCounters([
+          new adapt_css.URL("#target"),
+          adapt_css.getName("chapter"),
+          new adapt_css.Str("."),
+        ]);
+        visitor.visitFuncTargetCounters([
+          new adapt_css.URL("#target"),
+          adapt_css.getName("chapter"),
+          new adapt_css.Str("."),
+          adapt_css.getName("decimal"),
+        ]);
+        visitor.visitFuncTargetCounters([
+          new adapt_css.URL("#target"),
+          adapt_css.getName("chapter"),
+          new adapt_css.Str("-"),
+        ]);
+        visitor.visitFuncTargetCounters([
+          new adapt_css.URL("#target"),
+          adapt_css.getName("chapter"),
+          new adapt_css.Str("."),
+          adapt_css.getName("lower-roman"),
+        ]);
+      });
+      expect(formatKeys.length).toBe(4);
+      expect(formatKeys[0]).toBe(formatKeys[1]);
+      expect(formatKeys[2]).not.toBe(formatKeys[0]);
+      expect(formatKeys[3]).not.toBe(formatKeys[0]);
+      expect(formatKeys[3]).not.toBe(formatKeys[2]);
+    });
+  });
+
   function cascadeParserHandler(scope, validatorSet) {
     const dispatchHandler = new adapt_cssparse.DispatchParserHandler(
       scope,

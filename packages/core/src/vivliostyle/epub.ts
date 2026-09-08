@@ -33,6 +33,7 @@ import * as Font from "./font";
 import * as Logging from "./logging";
 import * as Net from "./net";
 import * as OPS from "./ops";
+import type * as PageFloats from "./page-floats";
 import * as Plugin from "./plugin";
 import * as SemanticFootnote from "./semantic-footnote";
 import * as Task from "./task";
@@ -1598,14 +1599,43 @@ export type OPFViewItem = {
   pages: Vtree.Page[];
   complete: boolean;
   pageCounterStarts: CssCascade.CounterValues[];
+  pageCounterEnds: CssCascade.CounterValues[];
 };
 
-type DeferredReferencePage = {
+type PostponedTargetHostPage = {
   viewItem: OPFViewItem;
-  page: Vtree.Page;
   pageIndex: number;
   nextLayoutPosition: Vtree.LayoutPosition | null;
 };
+
+const DESCRIBED_ITEM_LIMIT = 5;
+
+function describeList(items: string[]): string {
+  if (items.length === 0) {
+    return "(none)";
+  }
+  const listed = items.slice(0, DESCRIBED_ITEM_LIMIT).join(", ");
+  return items.length > DESCRIBED_ITEM_LIMIT
+    ? `${listed} and ${items.length - DESCRIBED_ITEM_LIMIT} more`
+    : listed;
+}
+
+/**
+ * Error representing that the rendering has been canceled.
+ */
+export class RenderingCanceledError extends Error {
+  name: string = "RenderingCanceledError";
+  message: string = "Page rendering has been canceled";
+  stack: string;
+
+  constructor() {
+    super();
+    // Set the prototype explicitly.
+    // https://github.com/Microsoft/TypeScript/wiki/Breaking-Changes#extending-built-ins-like-error-array-and-map-may-no-longer-work
+    Object.setPrototypeOf(this, RenderingCanceledError.prototype);
+    this.stack = new Error().stack ?? "";
+  }
+}
 
 export class OPFView implements Vgen.CustomRendererFactory {
   spineItems: (OPFViewItem | null)[] = [];
@@ -1617,17 +1647,18 @@ export class OPFView implements Vgen.CustomRendererFactory {
   tocAutohide: boolean = false;
   tocVisible: boolean = false;
   tocView?: Toc.TOCView;
-  private deferredReferencePages: DeferredReferencePage[] = [];
-  private resolvingDeferredReferences: boolean = false;
-  private processedDeferredReferencePages: Map<
-    OPFViewItem,
-    Set<number>
-  > | null = null;
-  private deferredFollowingSpineRelayoutStart: number | null = null;
-  private deferredPageReplacements = new Map<number, Vtree.Page[]>();
-  private relayoutingFollowingSpines: boolean = false;
-  private relayoutingFollowingSpineStart: number | null = null;
-  private renderingAllPages: boolean = false;
+  private postponedTargetHostPages: PostponedTargetHostPage[] = [];
+  private resolvingPostponedReferences = false;
+  private postponedReferenceResolutionTask: Task.Task | null = null;
+  private postponedReferenceResolutionWaiters: Task.Continuation<Error | null>[] =
+    [];
+  private followingSpineRerenderDepth = 0;
+  private pendingPageMaterializationDepth = 0;
+  private spineIndexOfCurrentPageCounters = -1;
+  private pendingFollowingSpineRerenders = new Map<OPFViewItem, boolean>();
+  private pageCountAdjustmentTotals = new WeakMap<OPFViewItem, number>();
+  private renderedPageCountFenwickTree: number[] = [];
+  private spineItemsWithEstimatedPageNumberOffset = new WeakSet<OPFViewItem>();
   private paginationProgress = {
     totalOffsetsBySpine: [] as number[],
     renderedOffsetsBySpine: [] as number[],
@@ -1644,15 +1675,14 @@ export class OPFView implements Vgen.CustomRendererFactory {
     public readonly fontMapper: Font.Mapper,
     pref: Exprs.Preferences,
     public readonly pageSheetSizeReporter: (
-      p1: { width: number; height: number },
-      p2: { [key: string]: { width: number; height: number } },
-      p3: number,
-      p4: number,
+      pageSize: { width: number; height: number } | null,
+      pageSheetSize: { [key: string]: { width: number; height: number } },
+      spineIndex: number,
+      pageIndex: number,
+      pageCountDelta: number,
     ) => any,
+    public readonly maxTargetReferenceLayoutPasses: number,
     cmykReserveMap?: CmykStore.CmykReserveMapEntry[],
-    public readonly pageSheetSizeTruncator: (
-      pageCount: number,
-    ) => void = () => {},
   ) {
     this.pref = Exprs.clonePreferences(pref);
     this.clientLayout = new Vgen.DefaultClientLayout(viewport);
@@ -1725,6 +1755,7 @@ export class OPFView implements Vgen.CustomRendererFactory {
     viewItem: OPFViewItem,
     page: Vtree.Page,
     pageIndex: number,
+    newPosition: Position | null = null,
   ) {
     page.container.style.display = "none";
     page.container.style.visibility = "visible";
@@ -1736,10 +1767,6 @@ export class OPFView implements Vgen.CustomRendererFactory {
       page.side as string,
     );
     const oldPage = viewItem.pages[pageIndex];
-    const deferredOldPage = this.takeDeferredPageReplacement(
-      viewItem.item.spineIndex,
-      page,
-    );
     page.isFirstPage = viewItem.item.spineIndex == 0 && pageIndex == 0;
     viewItem.pages[pageIndex] = page;
 
@@ -1748,15 +1775,10 @@ export class OPFView implements Vgen.CustomRendererFactory {
         const prevItem = this.opf.spine[viewItem.item.spineIndex - 1];
         viewItem.item.epage = prevItem.epage + prevItem.epageCount;
       }
-      viewItem.item.epageCount = viewItem.pages.length;
-      this.opf.epageCount = this.opf.spine.reduce(
-        (count, item) => count + item.epageCount,
-        0,
+      this.updateEPageRangesAfterPageCountChange(
+        viewItem,
+        viewItem.pages.length,
       );
-
-      if (this.opf.epageCountCallback) {
-        this.opf.epageCountCallback(this.opf.epageCount);
-      }
     }
 
     if (oldPage) {
@@ -1764,6 +1786,14 @@ export class OPFView implements Vgen.CustomRendererFactory {
         page.container,
         oldPage.container,
       );
+      oldPage.dispatchEvent({
+        type: "replaced",
+        target: null,
+        currentTarget: null,
+        preventDefault: null,
+        newPage: page,
+        newPosition,
+      });
     } else {
       // Find insert position in contentContainer.
       let insertPos: Element | null = null;
@@ -1786,12 +1816,7 @@ export class OPFView implements Vgen.CustomRendererFactory {
         page.container,
         insertPos,
       );
-    }
-    if (oldPage) {
-      this.dispatchPageReplacement(oldPage, page);
-    }
-    if (deferredOldPage && deferredOldPage !== oldPage) {
-      this.dispatchPageReplacement(deferredOldPage, page);
+      this.updateRenderedPageCount(viewItem.item.spineIndex, 1);
     }
     this.pageSheetSizeReporter(
       {
@@ -1800,29 +1825,39 @@ export class OPFView implements Vgen.CustomRendererFactory {
       },
       viewItem.instance.pageSheetSize,
       viewItem.item.spineIndex,
-      viewItem.instance.pageNumberOffset + pageIndex,
+      this.getRenderedPageIndex(viewItem, pageIndex),
+      oldPage ? 0 : 1,
     );
   }
 
   private getRenderedPageCount(): number {
-    let count = 0;
-    for (const item of this.spineItems) {
-      if (item) {
-        count += item.pages.length;
-      }
-    }
-    return count;
+    return this.getRenderedPageCountBeforeSpine(this.opf.spine.length);
   }
 
-  private getRenderedPageSizeCount(): number {
+  private getRenderedPageIndex(
+    viewItem: OPFViewItem,
+    pageIndex: number,
+  ): number {
+    return (
+      this.getRenderedPageCountBeforeSpine(viewItem.item.spineIndex) + pageIndex
+    );
+  }
+
+  private updateRenderedPageCount(spineIndex: number, delta: number): void {
+    for (
+      let index = spineIndex + 1;
+      index <= this.opf.spine.length;
+      index += index & -index
+    ) {
+      this.renderedPageCountFenwickTree[index] =
+        (this.renderedPageCountFenwickTree[index] ?? 0) + delta;
+    }
+  }
+
+  private getRenderedPageCountBeforeSpine(spineIndex: number): number {
     let count = 0;
-    for (const item of this.spineItems) {
-      if (item) {
-        count = Math.max(
-          count,
-          item.instance.pageNumberOffset + item.pages.length,
-        );
-      }
+    for (let index = spineIndex; index > 0; index -= index & -index) {
+      count += this.renderedPageCountFenwickTree[index] ?? 0;
     }
     return count;
   }
@@ -1839,7 +1874,6 @@ export class OPFView implements Vgen.CustomRendererFactory {
       viewItem.layoutPositions.length === viewItem.pages.length;
     if (viewItem.complete) {
       viewItem.instance.viewport.layoutBox.removeAttribute("style");
-      this.flushDeferredPageReplacements(viewItem);
     }
   }
 
@@ -2126,9 +2160,16 @@ export class OPFView implements Vgen.CustomRendererFactory {
     // Restore page counter starts when re-rendering a page so target-counter()
     // and page-based counters stay stable across relayouts.
     const storedCounters = viewItem.pageCounterStarts[pageIndexToRender];
-    if (oldPage && storedCounters) {
+    if (storedCounters && (oldPage || pageIndexToRender === 0)) {
       this.counterStore.currentPageCounters =
         cloneCounterValues(storedCounters);
+    } else if (pageIndexToRender > 0) {
+      const previousPageCounters =
+        viewItem.pageCounterEnds[pageIndexToRender - 1];
+      if (previousPageCounters) {
+        this.counterStore.currentPageCounters =
+          cloneCounterValues(previousPageCounters);
+      }
     }
     const startCounters = cloneCounterValues(
       this.counterStore.currentPageCounters,
@@ -2136,7 +2177,7 @@ export class OPFView implements Vgen.CustomRendererFactory {
     if (!storedCounters || !oldPage) {
       viewItem.pageCounterStarts[pageIndexToRender] = startCounters;
     }
-    return oldPage;
+    return oldPage ?? null;
   }
 
   private maybeRelayoutFollowingPage(
@@ -2193,26 +2234,20 @@ export class OPFView implements Vgen.CustomRendererFactory {
     const frame: Task.Frame<Vtree.Page> = Task.newFrame(
       "resolveUnresolvedReferencesForPage",
     );
-    // When inside a target-counter/target-text resolution scope
-    // (pushPageCounters/popPageCounters), skip processing unresolved
-    // references on cascaded pages to prevent infinite re-layout loops.
-    // References that remain unresolved will be resolved when their
-    // target pages are rendered in the normal (non-cascade) flow.
-    // (fix for issue #1686)
-    const inCounterResolveScope = this.isInCounterResolveScope();
-    if (inCounterResolveScope) {
-      // A cascaded page can invalidate references even when it is not the
-      // page that started the current counter-resolution scope. Remember the
-      // actual page at the point where #1686 defers it, so the outermost pop
-      // can revisit it later.
-      this.deferReferencesForPage(
-        viewItem,
-        page,
-        pageIndex,
-        nextLayoutPosition,
-      );
+    let cleanupReferenceResolution: (() => void) | null = null;
+    frame.handler = (handlerFrame, err) => {
+      cleanupReferenceResolution?.();
+      handlerFrame.task.raise(err, handlerFrame.parent);
+    };
+    const currentPageSpineIndex = this.spineIndexOfCurrentPageCounters;
+    const shouldPostpone =
+      this.isInCounterResolveScope() ||
+      this.followingSpineRerenderDepth > 0 ||
+      this.pendingPageMaterializationDepth > 0;
+    if (shouldPostpone) {
+      this.postponeTargetHostPage(viewItem, pageIndex, nextLayoutPosition);
     }
-    const unresolvedRefs = inCounterResolveScope
+    const unresolvedRefs = shouldPostpone
       ? []
       : this.counterStore.getUnresolvedRefsToPage(page);
     let unresolvedRefIndex = 0;
@@ -2226,25 +2261,43 @@ export class OPFView implements Vgen.CustomRendererFactory {
           return;
         }
         const refs = unresolvedRefs[unresolvedRefIndex - 1];
-        refs.refs = refs.refs.filter(
-          (ref) =>
-            !ref.isResolved() && this.counterStore.isReferenceTracked(ref),
+        refs.refs = refs.refs.filter((ref) =>
+          this.counterStore.isUnresolvedReference(ref),
         );
         if (refs.refs.length === 0) {
           loopFrame.continueLoop();
           return;
         }
-        this.getPageViewItem(refs.spineIndex).then((targetViewItem) => {
-          if (!targetViewItem) {
+        const countersBeforeSourceLoad = cloneCounterValues(
+          this.counterStore.currentPageCounters,
+        );
+        const spineIndexBeforeSourceLoad = this.spineIndexOfCurrentPageCounters;
+        const restoreCountersBeforeSourceLoad = () => {
+          this.counterStore.currentPageCounters = countersBeforeSourceLoad;
+          this.spineIndexOfCurrentPageCounters = spineIndexBeforeSourceLoad;
+        };
+        cleanupReferenceResolution = restoreCountersBeforeSourceLoad;
+        this.getPageViewItem(refs.spineIndex).then((sourceViewItem) => {
+          cleanupReferenceResolution = null;
+          restoreCountersBeforeSourceLoad();
+          if (!sourceViewItem) {
+            loopFrame.continueLoop();
+            return;
+          }
+          refs.refs = refs.refs.filter((ref) =>
+            this.counterStore.isUnresolvedReference(ref),
+          );
+          const pos = sourceViewItem.layoutPositions[refs.pageIndex];
+          if (refs.refs.length === 0 || pos === undefined) {
             loopFrame.continueLoop();
             return;
           }
           // Save page type states and restore them after re-rendering page.
           // This is necessary for named page with target-counter() to work.
           // (fix for issues #1272 and #1497)
-          const stylerCascade = targetViewItem.instance.styler.cascade;
+          const stylerCascade = sourceViewItem.instance.styler.cascade;
           const pageCascade =
-            targetViewItem.instance.pageManager.pageCascadeInstance;
+            sourceViewItem.instance.pageManager.pageCascadeInstance;
           const savedStylerPageTypeState = {
             currentPageType: stylerCascade.currentPageType,
             previousPageType: stylerCascade.previousPageType,
@@ -2254,16 +2307,16 @@ export class OPFView implements Vgen.CustomRendererFactory {
             previousPageType: pageCascade.previousPageType,
           };
           const savedPageGroupPageCounts = clonePageGroupPageCounts(
-            targetViewItem.instance.pageGroupPageCounts,
+            sourceViewItem.instance.pageGroupPageCounts,
           );
           const savedCurrentPageGroupDocument =
-            targetViewItem.instance.currentPageGroupDocument;
+            sourceViewItem.instance.currentPageGroupDocument;
 
           // Save the scopes and restore them after re-rendering page.
           // This is necessary for :blank page selector to work.
           // (fix for issues #1131 and #1513)
-          const scopes = targetViewItem.instance.scopes;
-          targetViewItem.instance.scopes = {};
+          const scopes = sourceViewItem.instance.scopes;
+          sourceViewItem.instance.scopes = {};
 
           // Isolate root page-float layout context only when re-rendering an
           // already rendered target page. For first-time rendering of the
@@ -2272,74 +2325,95 @@ export class OPFView implements Vgen.CustomRendererFactory {
           // (fix for issue #1094 and regression in
           // target-counter-and-page-floats.html)
           const hasRenderedFollowingPage =
-            refs.pageIndex < targetViewItem.pages.length - 1;
-          const hasRenderedTargetPage = !!targetViewItem.pages[refs.pageIndex];
+            refs.pageIndex < sourceViewItem.pages.length - 1;
+          const hasRenderedSourcePage = !!sourceViewItem.pages[refs.pageIndex];
           const shouldIsolateRootPageFloatLayoutContext =
-            hasRenderedTargetPage && hasRenderedFollowingPage;
+            hasRenderedSourcePage && hasRenderedFollowingPage;
           const previousPageFloatLayoutContext =
             shouldIsolateRootPageFloatLayoutContext && refs.pageIndex > 0
-              ? targetViewItem.pages[refs.pageIndex - 1]?.pageFloatLayoutContext
+              ? sourceViewItem.pages[refs.pageIndex - 1]?.pageFloatLayoutContext
               : null;
-          const originalRootPageFloatLayoutContext =
-            shouldIsolateRootPageFloatLayoutContext
-              ? targetViewItem.instance.beginIsolatedRootPageFloatLayoutContext(
-                  previousPageFloatLayoutContext,
-                )
-              : null;
-
-          this.counterStore.pushPageCounters(refs.pageCounters);
-          this.counterStore.pushReferencesToSolve(refs.refs);
-          const pos = targetViewItem.layoutPositions[refs.pageIndex];
-          if (hasRenderedTargetPage) {
-            // Same-page rerenders should recompute :nth(... of <page-type>)
-            // from the page-group state of earlier pages only.
-            targetViewItem.instance.preparePageGroupPageIndicesForRerender(
-              targetViewItem.layoutPositions,
-              refs.pageIndex,
-            );
-          }
-
-          this.renderSinglePage(targetViewItem, pos).then((result) => {
-            if (shouldIsolateRootPageFloatLayoutContext) {
-              targetViewItem.instance.endIsolatedRootPageFloatLayoutContext(
+          let originalRootPageFloatLayoutContext: PageFloats.RootPageFloatLayoutContext | null =
+            null;
+          const pageCountBeforeSourceRender = sourceViewItem.pages.length;
+          const sourceWasComplete = sourceViewItem.complete;
+          const adjustmentTotalBeforeSourceRender =
+            this.pageCountAdjustmentTotals.get(sourceViewItem) ?? 0;
+          const isCrossSpine = sourceViewItem !== viewItem;
+          let resolutionStateRestored = false;
+          let pageCountersPushed = false;
+          let referencesPushed = false;
+          const restoreReferenceResolutionState = (): void => {
+            if (resolutionStateRestored) {
+              return;
+            }
+            resolutionStateRestored = true;
+            if (
+              shouldIsolateRootPageFloatLayoutContext &&
+              originalRootPageFloatLayoutContext
+            ) {
+              sourceViewItem.instance.endIsolatedRootPageFloatLayoutContext(
                 originalRootPageFloatLayoutContext,
               );
             }
-            const beforeRestoreStylerCurrentPageType =
-              stylerCascade.currentPageType;
             stylerCascade.currentPageType =
               savedStylerPageTypeState.currentPageType;
             stylerCascade.previousPageType =
               savedStylerPageTypeState.previousPageType;
-
             pageCascade.currentPageType =
               savedPageCascadePageTypeState.currentPageType;
             pageCascade.previousPageType =
               savedPageCascadePageTypeState.previousPageType;
-            targetViewItem.instance.pageGroupPageCounts =
+            sourceViewItem.instance.pageGroupPageCounts =
               savedPageGroupPageCounts;
-            targetViewItem.instance.currentPageGroupDocument =
+            sourceViewItem.instance.currentPageGroupDocument =
               savedCurrentPageGroupDocument;
-            targetViewItem.instance.scopes = scopes;
-            // Save the counter state BEFORE popping. After renderSinglePage,
-            // currentPageCounters reflects the correct end state for the
-            // target page within the pushed scope. This is the correct
-            // starting state for any pending page created by cascade blocking.
-            // After popPageCounters, this state is lost (restored to the
-            // source spine's counters), so save it now.
-            const counterStateAfterTargetRender = cloneCounterValues(
-              this.counterStore.currentPageCounters,
+            sourceViewItem.instance.scopes = scopes;
+            if (pageCountersPushed) {
+              this.counterStore.popPageCounters();
+              this.spineIndexOfCurrentPageCounters = currentPageSpineIndex;
+            }
+            if (referencesPushed) {
+              this.counterStore.popReferencesToSolve();
+            }
+            cleanupReferenceResolution = null;
+          };
+          cleanupReferenceResolution = restoreReferenceResolutionState;
+
+          if (shouldIsolateRootPageFloatLayoutContext) {
+            originalRootPageFloatLayoutContext =
+              sourceViewItem.instance.beginIsolatedRootPageFloatLayoutContext(
+                previousPageFloatLayoutContext,
+              );
+          }
+
+          this.counterStore.pushPageCounters(
+            this.counterStore.currentPageCounters,
+          );
+          pageCountersPushed = true;
+          this.counterStore.pushReferencesToSolve(refs.refs);
+          referencesPushed = true;
+          if (hasRenderedSourcePage) {
+            // Same-page rerenders should recompute :nth(... of <page-type>)
+            // from the page-group state of earlier pages only.
+            sourceViewItem.instance.preparePageGroupPageIndicesForRerender(
+              sourceViewItem.layoutPositions,
+              refs.pageIndex,
             );
-            this.counterStore.popPageCounters();
-            this.counterStore.popReferencesToSolve();
-            const continueLoopAfterDeferredReferences = () => {
-              const rerenderedTargetPage = result.pageAndPosition.page;
-              this.resolveDeferredReferencesAfterCounterScope(
-                targetViewItem,
-                rerenderedTargetPage,
-                result.pageAndPosition.position.pageIndex,
-                result.nextLayoutPosition,
-              ).then(() => loopFrame.continueLoop());
+          }
+
+          this.renderSinglePage(sourceViewItem, pos).then((result) => {
+            const beforeRestoreStylerCurrentPageType =
+              stylerCascade.currentPageType;
+            restoreReferenceResolutionState();
+            const continueAfterPostponedReferences = () => {
+              if (this.resolvingPostponedReferences) {
+                loopFrame.continueLoop();
+                return;
+              }
+              this.resolvePostponedReferences().then(() =>
+                loopFrame.continueLoop(),
+              );
             };
             if (
               result.pageAndPosition.position.spineIndex ===
@@ -2361,128 +2435,84 @@ export class OPFView implements Vgen.CustomRendererFactory {
             if (shouldSyncStylerCurrentPageType) {
               stylerCascade.currentPageType = currentPage.pageType;
             }
-            // Issue #1498: target-counter() resolution can leave one pending
-            // layout slot (layoutPositions has next page) without an actual
-            // rendered page in pages[]. Materialize that pending page here so
-            // later navigation/render loops do not stop one page early.
-            const isCrossSpine = targetViewItem !== viewItem;
-            const firstPendingPageIndex = targetViewItem.pages.length;
-            const pendingLayoutPosition =
-              targetViewItem.layoutPositions[firstPendingPageIndex];
-            // Recompute root page-float layout context state after rerender and
-            // context restoration to avoid using stale pre-rerender state.
-            const hasActiveRootPageFloatLayoutContextAfterRerender =
-              targetViewItem.instance.hasActiveRootPageFloatLayoutContext();
-            if (
-              pendingLayoutPosition &&
-              !hasActiveRootPageFloatLayoutContextAfterRerender
-            ) {
-              // For cross-spine cases, save/restore counter state around the
-              // pending page render and use the counter state saved before
-              // popPageCounters, because the global state after pop reflects
-              // the source spine, not the target spine.
-              const savedCountersBeforePending = isCrossSpine
-                ? cloneCounterValues(this.counterStore.currentPageCounters)
-                : null;
-              if (isCrossSpine) {
-                this.counterStore.currentPageCounters =
-                  counterStateAfterTargetRender;
-              }
-              const pageCountBeforePending = firstPendingPageIndex;
-              this.renderSinglePage(targetViewItem, pendingLayoutPosition).then(
-                () => {
-                  if (isCrossSpine) {
-                    this.markSpineItemCompleteIfReady(targetViewItem);
-                  }
-                  // After the pending page expanded the target spine,
-                  // pageCountersById snapshots for elements in later spines
-                  // are stale (page counter is off by the added pages).
-                  // Adjust those snapshots, shift the saved source-spine
-                  // counter state so subsequent pages start from the
-                  // corrected offset, and patch already-rendered
-                  // target-counter DOM nodes in the expanded spine's pages.
-                  const pageDelta =
-                    targetViewItem.pages.length - pageCountBeforePending;
-                  if (isCrossSpine && pageDelta > 0) {
-                    this.counterStore.adjustPageCountersOfLaterSpines(
-                      targetViewItem.item.spineIndex,
-                      pageDelta,
-                    );
-                    this.counterStore.updateTargetCounterNodesInPages(
-                      targetViewItem.pages,
-                    );
-                    this.updateEPageRangesAfterPageCountChange(
-                      targetViewItem,
-                      targetViewItem.pages.length,
-                    );
-                    // Adjust pageCounterStarts and page-counter DOM nodes
-                    // for all already-rendered later-spine viewItems so
-                    // their counter(page) margins show the corrected value
-                    // and future re-renders start from the right offset.
-                    const expandedIdx = targetViewItem.item.spineIndex;
-                    for (
-                      let si = expandedIdx + 1;
-                      si < this.spineItems.length;
-                      si++
-                    ) {
-                      const laterItem = this.spineItems[si];
-                      if (!laterItem) continue;
-                      for (const pcs of laterItem.pageCounterStarts) {
-                        if (pcs?.["page"]) {
-                          pcs["page"] = pcs["page"].map((v) => v + pageDelta);
-                        }
-                      }
-                      this.counterStore.updatePageCounterNodesInPages(
-                        laterItem.pages,
-                        laterItem.pageCounterStarts,
-                      );
-                    }
-                    // Shift the saved source-spine counter state so that
-                    // when it is restored below, subsequent pages of the
-                    // source spine continue with the corrected page offset.
-                    if (savedCountersBeforePending) {
-                      const srcPage = savedCountersBeforePending["page"];
-                      if (srcPage) {
-                        savedCountersBeforePending["page"] = srcPage.map(
-                          (v) => v + pageDelta,
-                        );
-                      }
-                    }
-                  }
-                  if (savedCountersBeforePending) {
-                    this.counterStore.currentPageCounters =
-                      savedCountersBeforePending;
-                  }
-                  continueLoopAfterDeferredReferences();
-                },
-              );
-              return;
-            }
-            // The target spine's re-render (or cascade inside the resolve
-            // scope) may have set complete=false even when no pending page
-            // was created. Re-check completeness so navigation can advance
-            // past this spine. Only for cross-spine cases.
+            // Issue #1498: target-counter() resolution can leave pending
+            // layout slots (layoutPositions has next page) without an actual
+            // rendered page in pages[]. Materialize those pending pages here so
+            // later navigation/render loops do not stop early.
+            // For cross-spine cases, save/restore counter state around the
+            // pending page render.
+            const savedCountersBeforePending = isCrossSpine
+              ? cloneCounterValues(this.counterStore.currentPageCounters)
+              : null;
             if (isCrossSpine) {
-              this.markSpineItemCompleteIfReady(targetViewItem);
+              cleanupReferenceResolution = () => {
+                this.counterStore.currentPageCounters =
+                  savedCountersBeforePending;
+                this.spineIndexOfCurrentPageCounters = currentPageSpineIndex;
+                cleanupReferenceResolution = null;
+              };
             }
-            continueLoopAfterDeferredReferences();
+            this.materializePendingPages(
+              sourceViewItem,
+              sourceWasComplete ? Infinity : 1,
+            ).then(() => {
+              // The source spine's re-render (or cascade inside the resolve
+              // scope) may have set complete=false even when no pending page
+              // was created. Re-check completeness so navigation can advance
+              // past this spine.
+              this.markSpineItemCompleteIfReady(sourceViewItem);
+              const pageDelta = this.getUnappliedPageCountChange(
+                sourceViewItem,
+                pageCountBeforeSourceRender,
+                adjustmentTotalBeforeSourceRender,
+              );
+              this.adjustFollowingSpinesForPageCountChange(
+                sourceViewItem,
+                pageDelta,
+                savedCountersBeforePending ??
+                  this.counterStore.currentPageCounters,
+                savedCountersBeforePending
+                  ? currentPageSpineIndex
+                  : this.spineIndexOfCurrentPageCounters,
+              );
+              if (savedCountersBeforePending) {
+                this.counterStore.currentPageCounters =
+                  savedCountersBeforePending;
+                this.spineIndexOfCurrentPageCounters = currentPageSpineIndex;
+                cleanupReferenceResolution = null;
+              }
+              this.scheduleFollowingSpineRerender(sourceViewItem, pageDelta);
+              continueAfterPostponedReferences();
+            });
           });
         });
       })
+      .thenAsync(() =>
+        shouldPostpone ? Task.newResult(true) : this.drainPostponedWork(),
+      )
       .then(() => {
         if (!currentPage.container.parentElement) {
-          // page is replaced
-          currentPage = viewItem.pages[pageIndex];
+          currentPage =
+            viewItem.pages[pageIndex] ??
+            viewItem.pages[viewItem.pages.length - 1] ??
+            currentPage;
         }
+        const retainedPageIndex = viewItem.pages.indexOf(currentPage);
+        const currentPageIndex =
+          retainedPageIndex < 0 ? pageIndex : retainedPageIndex;
+        const currentNextLayoutPosition =
+          retainedPageIndex < 0
+            ? nextLayoutPosition
+            : (viewItem.layoutPositions[currentPageIndex + 1] ?? null);
         currentPage.isLastPage =
-          !nextLayoutPosition &&
+          !currentNextLayoutPosition &&
           viewItem.item.spineIndex === this.opf.spine.length - 1;
         if (currentPage.isLastPage) {
           this.counterStore.finishLastPage(this.viewport);
         }
         currentPage.container.setAttribute(
           "data-vivliostyle-page-index",
-          pageIndex,
+          currentPageIndex,
         );
         currentPage.container.setAttribute(
           "data-vivliostyle-spine-index",
@@ -2493,140 +2523,804 @@ export class OPFView implements Vgen.CustomRendererFactory {
     return frame.result();
   }
 
-  private resolveDeferredReferencesAfterCounterScope(
+  private materializePendingPages(
     viewItem: OPFViewItem,
-    page: Vtree.Page,
-    pageIndex: number,
-    nextLayoutPosition: Vtree.LayoutPosition | null,
-  ): Task.Result<Vtree.Page> {
-    // A target page may be rerendered several scopes deep. Processing its
-    // newly invalidated references immediately after the innermost pop still
-    // hits the #1686 recursion guard because an outer counter scope remains.
-    // Keep the page until the outermost scope is restored, then drain all
-    // deferred pages in order.
-    this.deferReferencesForPage(viewItem, page, pageIndex, nextLayoutPosition);
-    const deferredReferencePages = this.deferredReferencePages;
-
-    if (
-      this.isInCounterResolveScope() ||
-      this.resolvingDeferredReferences ||
-      deferredReferencePages.length === 0
-    ) {
-      return Task.newResult(page);
-    }
-
-    const frame: Task.Frame<Vtree.Page> = Task.newFrame(
-      "resolveDeferredReferencesAfterCounterScope",
-    );
-    this.resolvingDeferredReferences = true;
-    this.processedDeferredReferencePages = new Map();
+    maxPageCount: number,
+  ): Task.Result<boolean> {
+    const frame = Task.newFrame<boolean>("materializePendingPages");
+    let renderedPageCount = 0;
+    this.pendingPageMaterializationDepth++;
     frame.handler = (handlerFrame, err) => {
-      this.resolvingDeferredReferences = false;
-      this.processedDeferredReferencePages = null;
+      this.pendingPageMaterializationDepth--;
       handlerFrame.task.raise(err, handlerFrame.parent);
     };
     frame
       .loopWithFrame((loopFrame) => {
-        const entry = deferredReferencePages.shift();
-        if (!entry) {
+        const pageCount = viewItem.pages.length;
+        const pendingLayoutPosition = viewItem.layoutPositions[pageCount];
+        if (
+          renderedPageCount >= maxPageCount ||
+          pendingLayoutPosition === undefined ||
+          viewItem.instance.hasActiveRootPageFloatLayoutContext()
+        ) {
           loopFrame.breakLoop();
           return;
         }
-        const currentPage =
-          entry.viewItem.pages?.[entry.pageIndex] || entry.page;
-        if (!this.hasUnresolvedReferencesToPage(currentPage)) {
-          loopFrame.continueLoop();
-          return;
-        }
-        let processedPageIndices = this.processedDeferredReferencePages!.get(
-          entry.viewItem,
-        );
-        if (!processedPageIndices) {
-          processedPageIndices = new Set();
-          this.processedDeferredReferencePages!.set(
-            entry.viewItem,
-            processedPageIndices,
-          );
-        }
-        processedPageIndices.add(entry.pageIndex);
-        this.resolveUnresolvedReferencesForPage(
-          entry.viewItem,
-          currentPage,
-          entry.pageIndex,
-          entry.nextLayoutPosition,
-        ).then(() => loopFrame.continueLoop());
+        this.renderSinglePage(viewItem, pendingLayoutPosition).then(() => {
+          renderedPageCount++;
+          if (viewItem.pages.length > pageCount) {
+            loopFrame.continueLoop();
+          } else {
+            loopFrame.breakLoop();
+          }
+        });
       })
       .then(() => {
-        this.resolvingDeferredReferences = false;
-        this.processedDeferredReferencePages = null;
-        frame.finish(page);
+        this.pendingPageMaterializationDepth--;
+        frame.finish(true);
       });
     return frame.result();
   }
 
-  private hasUnresolvedReferencesToPage(page: Vtree.Page): boolean {
-    return this.counterStore
-      .getUnresolvedRefsToPage(page)
-      .some((group) => group.refs.some((ref) => !ref.isResolved()));
+  private releasePostponedReferenceWaiters(error?: Error): void {
+    for (const waiter of this.postponedReferenceResolutionWaiters.splice(0)) {
+      waiter.schedule(error ?? null);
+    }
   }
 
-  private deferReferencesForPage(
+  private drainPostponedWork(): Task.Result<boolean> {
+    if (
+      this.isInCounterResolveScope() ||
+      this.followingSpineRerenderDepth > 0 ||
+      this.pendingPageMaterializationDepth > 0
+    ) {
+      return Task.newResult(true);
+    }
+    return this.resolvePostponedReferences();
+  }
+
+  private isPostponedTargetHostPagePending(
+    entry: PostponedTargetHostPage,
+  ): boolean {
+    const spineIndex = entry.viewItem.item.spineIndex;
+    if (
+      this.spineItems[spineIndex] !== undefined &&
+      this.spineItems[spineIndex] !== entry.viewItem
+    ) {
+      return false;
+    }
+    const page = entry.viewItem.pages[entry.pageIndex];
+    return !!page && this.counterStore.hasUnresolvedReferencesToPage(page);
+  }
+
+  private postponeTargetHostPage(
     viewItem: OPFViewItem,
-    page: Vtree.Page,
     pageIndex: number,
     nextLayoutPosition: Vtree.LayoutPosition | null,
   ): void {
-    // The deferred drain is the single retry allowed after the outermost
-    // counter scope. Do not let the entry currently being retried enqueue
-    // itself again; cascaded pages must still join the active queue.
-    if (this.processedDeferredReferencePages?.get(viewItem)?.has(pageIndex)) {
+    const entry = { viewItem, pageIndex, nextLayoutPosition };
+    if (!this.isPostponedTargetHostPagePending(entry)) {
       return;
     }
-    const latestPage = viewItem.pages?.[pageIndex] || page;
-    if (!this.hasUnresolvedReferencesToPage(latestPage)) {
-      return;
-    }
-    const deferredReferencePages = this.deferredReferencePages;
-    const queued = deferredReferencePages.find(
-      (entry) => entry.viewItem === viewItem && entry.pageIndex === pageIndex,
+    const existing = this.postponedTargetHostPages.find(
+      (queued) =>
+        queued.viewItem === viewItem && queued.pageIndex === pageIndex,
     );
-    if (queued) {
-      queued.page = latestPage;
-      queued.nextLayoutPosition = nextLayoutPosition;
-    } else {
-      deferredReferencePages.push({
-        viewItem,
-        page: latestPage,
-        pageIndex,
-        nextLayoutPosition,
-      });
+    if (existing) {
+      existing.nextLayoutPosition = nextLayoutPosition;
+      return;
     }
+    this.postponedTargetHostPages.push(entry);
   }
 
-  private deferFollowingSpinesForRelayout(spineIndex: number): void {
-    this.deferSpinesForRelayoutFrom(spineIndex + 1);
+  private getUnresolvedReferencesToPostponedPages(): Counters.TargetCounterReference[] {
+    return Array.from(
+      new Set(
+        this.postponedTargetHostPages
+          .filter((entry) => this.isPostponedTargetHostPagePending(entry))
+          .flatMap((entry) =>
+            this.counterStore
+              .getUnresolvedRefsToPage(entry.viewItem.pages[entry.pageIndex])
+              .flatMap((group) => group.refs),
+          ),
+      ),
+    );
   }
 
-  private deferSpinesForRelayoutFrom(firstSpineIndex: number): void {
-    this.deferredFollowingSpineRelayoutStart =
-      this.deferredFollowingSpineRelayoutStart == null
-        ? firstSpineIndex
-        : Math.min(this.deferredFollowingSpineRelayoutStart, firstSpineIndex);
+  private get layoutPassLimit(): number {
+    const limit = this.maxTargetReferenceLayoutPasses;
+    return Number.isSafeInteger(limit) && limit > 0 ? limit : 1;
   }
 
-  private removeDeferredReferencePages(
-    shouldRemove: (entry: DeferredReferencePage) => boolean,
-  ): void {
-    // Keep the queue object stable because an active drain holds this array.
-    for (
-      let deferredIndex = this.deferredReferencePages.length - 1;
-      deferredIndex >= 0;
-      deferredIndex--
+  private describeLayoutPassLimit(): string {
+    const passes = this.layoutPassLimit;
+    return `${passes} ${passes === 1 ? "pass" : "passes"}`;
+  }
+
+  private pinPostponedTargetPages(): boolean {
+    const targetIds = Array.from(
+      new Set(
+        this.getUnresolvedReferencesToPostponedPages().map(
+          (ref) => ref.targetId,
+        ),
+      ),
+    );
+    const pinnedTargetIds = this.counterStore.pinTargetPages(targetIds);
+    if (pinnedTargetIds.length > 0) {
+      Logging.logger.warn(
+        `Cross-reference layout did not converge after ${this.describeLayoutPassLimit()}; pinning ${this.describeTargets(pinnedTargetIds)} to the last page number, which may leave earlier pages blank`,
+      );
+    }
+    return targetIds.some((id) => !!this.counterStore.getPinnedTarget(id));
+  }
+
+  private describeTargetId(id: string): string {
+    if (!id.startsWith(transformedIdPrefix)) {
+      return id;
+    }
+    const [url, fragment] =
+      this.counterStore.documentURLTransformer.restoreURL(id);
+    if (!url) {
+      return id;
+    }
+    return fragment ? `${url}#${fragment}` : url;
+  }
+
+  private abandonPostponedReferences(): void {
+    const targets = this.describeTargetsOf(
+      this.getUnresolvedReferencesToPostponedPages(),
+    );
+    this.postponedTargetHostPages = [];
+    Logging.logger.warn(
+      `Cross-reference layout was stopped after ${this.describeLayoutCycleLimit()}; references to ${targets} are left unresolved`,
+    );
+  }
+
+  private describeTargetsOf(refs: Counters.TargetCounterReference[]): string {
+    return this.describeTargets(
+      Array.from(new Set(refs.map((ref) => ref.targetId))),
+    );
+  }
+
+  private describeTargets(ids: string[]): string {
+    return `${ids.length === 1 ? "target" : "targets"} ${describeList(
+      ids.map((id) => this.describeTargetId(id)),
+    )}`;
+  }
+
+  private settleFrozenPostponedReferences(): void {
+    this.counterStore.settleFrozenReferences(
+      this.getUnresolvedReferencesToPostponedPages(),
+    );
+    this.postponedTargetHostPages = this.postponedTargetHostPages.filter(
+      (entry) => this.isPostponedTargetHostPagePending(entry),
+    );
+  }
+
+  private freezePostponedTargetReferences(reason: string): void {
+    const frozenReferences = this.counterStore.freezeTargetReferences(
+      this.getUnresolvedReferencesToPostponedPages(),
+    );
+    if (frozenReferences.length === 0) {
+      return;
+    }
+    Logging.logger.warn(
+      `Cross-reference layout did not converge ${reason}; references to ${this.describeTargetsOf(frozenReferences)} keep their last resolved values`,
+    );
+  }
+
+  private describeLayoutCycleLimit(): string {
+    const cycles = this.layoutPassLimit;
+    return `${cycles} resolution ${cycles === 1 ? "cycle" : "cycles"}`;
+  }
+
+  private resolvePostponedReferences(): Task.Result<boolean> {
+    if (this.isInCounterResolveScope()) {
+      return Task.newResult(true);
+    }
+    if (this.resolvingPostponedReferences) {
+      const resolutionTask = this.postponedReferenceResolutionTask;
+      if (resolutionTask && resolutionTask !== Task.currentTask()) {
+        const frame = Task.newFrame<Error | null>(
+          "waitForPostponedReferenceResolution",
+        );
+        const continuation = frame.suspend(this);
+        this.postponedReferenceResolutionWaiters.push(continuation);
+        return frame.result().thenAsync((error) => {
+          if (error) {
+            throw error;
+          }
+          return this.resolvePostponedReferences();
+        });
+      }
+      return Task.newResult(true);
+    }
+    if (
+      this.postponedTargetHostPages.length === 0 &&
+      this.pendingFollowingSpineRerenders.size === 0
     ) {
-      if (shouldRemove(this.deferredReferencePages[deferredIndex])) {
-        this.deferredReferencePages.splice(deferredIndex, 1);
+      return Task.newResult(true);
+    }
+    const frame = Task.newFrame<boolean>("resolvePostponedReferences");
+    const ownerTask = Task.currentTask();
+    this.resolvingPostponedReferences = true;
+    this.postponedReferenceResolutionTask = ownerTask;
+    const ownsResolution = (): boolean =>
+      this.postponedReferenceResolutionTask === ownerTask;
+    const releaseWaiters = (error?: Error) => {
+      if (!ownsResolution()) {
+        return;
+      }
+      this.resolvingPostponedReferences = false;
+      this.postponedReferenceResolutionTask = null;
+      this.releasePostponedReferenceWaiters(error);
+    };
+    let currentEntry: PostponedTargetHostPage | null = null;
+    let entriesInCurrentPass = new Set<PostponedTargetHostPage>();
+    frame.handler = (handlerFrame, err) => {
+      if (
+        ownsResolution() &&
+        currentEntry &&
+        this.isPostponedTargetHostPagePending(currentEntry) &&
+        !this.postponedTargetHostPages.some(
+          (queued) =>
+            queued.viewItem === currentEntry.viewItem &&
+            queued.pageIndex === currentEntry.pageIndex,
+        )
+      ) {
+        this.postponedTargetHostPages.unshift(currentEntry);
+      }
+      currentEntry = null;
+      releaseWaiters(err);
+      handlerFrame.task.raise(err, handlerFrame.parent);
+    };
+    const layoutPassLimit = this.layoutPassLimit;
+    let passesRun = 0;
+    let passesLeftInPhase = layoutPassLimit;
+    let cycleCount = 1;
+    let flushCount = 0;
+    let abandoning = false;
+    let pinnedPhaseRan = false;
+    let phase: "free" | "pinned" | "frozen" | "done" = "free";
+    const enterPhase = (nextPhase: "free" | "pinned" | "frozen"): void => {
+      phase = nextPhase;
+      passesLeftInPhase = nextPhase === "frozen" ? 1 : layoutPassLimit;
+      if (nextPhase !== "frozen") {
+        pinnedPhaseRan = nextPhase === "pinned";
+      }
+      if (nextPhase === "frozen") {
+        this.freezePostponedTargetReferences(
+          abandoning
+            ? `after ${this.describeLayoutCycleLimit()}`
+            : pinnedPhaseRan
+              ? `after ${this.describeLayoutPassLimit()} with pinned targets`
+              : `after ${this.describeLayoutPassLimit()}`,
+        );
+      }
+    };
+    frame
+      .loopWithFrame((loopFrame) => {
+        if (!ownsResolution()) {
+          loopFrame.breakLoop();
+          return;
+        }
+        const entry = this.postponedTargetHostPages.find(
+          (queued) =>
+            entriesInCurrentPass.has(queued) &&
+            this.isPostponedTargetHostPagePending(queued),
+        );
+        if (!entry) {
+          this.postponedTargetHostPages = this.postponedTargetHostPages.filter(
+            (queued) => this.isPostponedTargetHostPagePending(queued),
+          );
+          if (this.postponedTargetHostPages.length === 0 || phase === "done") {
+            if (this.pendingFollowingSpineRerenders.size > 0) {
+              if (flushCount < layoutPassLimit) {
+                flushCount++;
+                this.flushFollowingSpineRerenders().then(() =>
+                  loopFrame.continueLoop(),
+                );
+                return;
+              }
+              if (flushCount === layoutPassLimit) {
+                flushCount++;
+                Logging.logger.warn(
+                  `Following spines were rerendered in ${layoutPassLimit} ${layoutPassLimit === 1 ? "round" : "rounds"} without settling; the layout of the spines following ${describeList(
+                    Array.from(
+                      this.pendingFollowingSpineRerenders.keys(),
+                      (viewItem) => viewItem.item.src,
+                    ),
+                  )} is kept as it is`,
+                );
+              }
+              this.pendingFollowingSpineRerenders.clear();
+            }
+            if (this.postponedTargetHostPages.length === 0) {
+              loopFrame.breakLoop();
+              return;
+            }
+            if (abandoning) {
+              this.abandonPostponedReferences();
+              loopFrame.breakLoop();
+              return;
+            }
+            if (++cycleCount > layoutPassLimit) {
+              abandoning = true;
+              enterPhase("frozen");
+            } else {
+              enterPhase("free");
+            }
+          }
+          if (passesLeftInPhase <= 0) {
+            if (phase === "free" && this.pinPostponedTargetPages()) {
+              enterPhase("pinned");
+            } else if (phase !== "frozen") {
+              enterPhase("frozen");
+            } else {
+              phase = "done";
+              entriesInCurrentPass.clear();
+              this.settleFrozenPostponedReferences();
+              loopFrame.continueLoop();
+              return;
+            }
+          }
+          passesLeftInPhase--;
+          passesRun++;
+          entriesInCurrentPass = new Set(this.postponedTargetHostPages);
+          loopFrame.continueLoop();
+          return;
+        }
+        this.postponedTargetHostPages.splice(
+          this.postponedTargetHostPages.indexOf(entry),
+          1,
+        );
+        currentEntry = entry;
+        this.resolveUnresolvedReferencesForPage(
+          entry.viewItem,
+          entry.viewItem.pages[entry.pageIndex],
+          entry.pageIndex,
+          entry.nextLayoutPosition,
+        ).then(() => {
+          currentEntry = null;
+          if (this.isPostponedTargetHostPagePending(entry)) {
+            this.postponeTargetHostPage(
+              entry.viewItem,
+              entry.pageIndex,
+              entry.nextLayoutPosition,
+            );
+          }
+          loopFrame.continueLoop();
+        });
+      })
+      .then(() => {
+        if (ownsResolution() && (passesRun > 0 || flushCount > 0)) {
+          this.counterStore.updateRunningTargetReferenceNodes(
+            this.viewport.root,
+          );
+        }
+        releaseWaiters();
+        frame.finish(true);
+      });
+    return frame.result();
+  }
+
+  private getPageNumberResetSpineIndexAfter(spineIndex: number): number {
+    const resetSpineIndex = this.opf.spine.findIndex(
+      (item, index) => index > spineIndex && item.startPage !== null,
+    );
+    return resetSpineIndex < 0 ? Infinity : resetSpineIndex;
+  }
+
+  private adjustFollowingSpinesForPageCountChange(
+    changedViewItem: OPFViewItem,
+    pageDelta: number,
+    currentPageCounters: CssCascade.CounterValues | null,
+    currentPageSpineIndex: number,
+  ): void {
+    if (pageDelta === 0) {
+      return;
+    }
+    const changedSpineIndex = changedViewItem.item.spineIndex;
+    const pageNumberResetSpineIndex =
+      this.getPageNumberResetSpineIndexAfter(changedSpineIndex);
+    const excludedSpineIndices = new Set(
+      this.spineItems
+        .filter(
+          (viewItem) =>
+            !!viewItem &&
+            this.spineItemsWithEstimatedPageNumberOffset.has(viewItem),
+        )
+        .map((viewItem) => viewItem.item.spineIndex),
+    );
+    const changedTargetIds = this.counterStore.adjustPageCountersOfLaterSpines(
+      changedSpineIndex,
+      pageDelta,
+      pageNumberResetSpineIndex,
+      excludedSpineIndices,
+    );
+    for (const viewItem of this.spineItems) {
+      if (!viewItem) {
+        continue;
+      }
+      if (
+        viewItem.item.spineIndex <= changedSpineIndex ||
+        viewItem.item.spineIndex >= pageNumberResetSpineIndex ||
+        this.spineItemsWithEstimatedPageNumberOffset.has(viewItem)
+      ) {
+        continue;
+      }
+      viewItem.instance.pageNumberOffset += pageDelta;
+      for (const counters of new Set([
+        ...viewItem.pageCounterStarts,
+        ...viewItem.pageCounterEnds,
+      ])) {
+        Counters.shiftOutermostPageCounter(counters, pageDelta);
+      }
+      this.counterStore.updatePageCounterNodesInPages(
+        viewItem.pages,
+        viewItem.pageCounterEnds,
+      );
+    }
+    if (
+      currentPageSpineIndex > changedSpineIndex &&
+      currentPageSpineIndex < pageNumberResetSpineIndex &&
+      !excludedSpineIndices.has(currentPageSpineIndex) &&
+      currentPageCounters
+    ) {
+      Counters.shiftOutermostPageCounter(currentPageCounters, pageDelta);
+      Counters.shiftOutermostPageCounter(
+        this.counterStore.pageCountersBeforeOverride,
+        pageDelta,
+      );
+    }
+    if (changedTargetIds.length) {
+      for (const id of changedTargetIds) {
+        const { spineIndex, pageIndex } = this.counterStore.pageIndicesById[id];
+        const viewItem = this.spineItems[spineIndex];
+        if (viewItem?.pages[pageIndex]?.elementsById[id]) {
+          this.postponeTargetHostPage(
+            viewItem,
+            pageIndex,
+            viewItem.layoutPositions[pageIndex + 1] ?? null,
+          );
+        }
       }
     }
+    this.pageCountAdjustmentTotals.set(
+      changedViewItem,
+      (this.pageCountAdjustmentTotals.get(changedViewItem) ?? 0) + pageDelta,
+    );
+  }
+
+  private getUnappliedPageCountChange(
+    viewItem: OPFViewItem,
+    pageCountBeforeLayout: number,
+    adjustmentTotalBeforeLayout: number,
+  ): number {
+    const pageCountChange = viewItem.pages.length - pageCountBeforeLayout;
+    const appliedPageCountChange =
+      (this.pageCountAdjustmentTotals.get(viewItem) ?? 0) -
+      adjustmentTotalBeforeLayout;
+    return pageCountChange - appliedPageCountChange;
+  }
+
+  private derivePageNumberOffset(
+    item: OPFItem,
+    previousViewItem: OPFViewItem | null,
+  ): number | null {
+    if (item.startPage !== null) {
+      return item.startPage - 1;
+    }
+    if (!previousViewItem?.complete) {
+      return null;
+    }
+    return (
+      previousViewItem.instance.pageNumberOffset +
+      previousViewItem.pages.length +
+      (item.skipPagesBefore ?? 0)
+    );
+  }
+
+  private rebuildPageNumberOffset(viewItem: OPFViewItem): void {
+    const pageNumberOffset = this.derivePageNumberOffset(
+      viewItem.item,
+      this.spineItems[viewItem.item.spineIndex - 1],
+    );
+    if (pageNumberOffset !== null) {
+      viewItem.instance.applyPageNumberOffset(pageNumberOffset);
+      this.spineItemsWithEstimatedPageNumberOffset.delete(viewItem);
+    }
+  }
+
+  private scheduleFollowingSpineRerender(
+    changedViewItem: OPFViewItem,
+    pageDelta: number,
+    throughPageNumberReset: boolean = false,
+  ): void {
+    if (pageDelta === 0 && !throughPageNumberReset) {
+      return;
+    }
+    this.pendingFollowingSpineRerenders.set(
+      changedViewItem,
+      throughPageNumberReset ||
+        (this.pendingFollowingSpineRerenders.get(changedViewItem) ?? false),
+    );
+  }
+
+  private flushFollowingSpineRerenders(): Task.Result<boolean> {
+    const frame = Task.newFrame<boolean>("flushFollowingSpineRerenders");
+    let dropRerenderedEntries: (() => void) | null = null;
+    frame.handler = (handlerFrame, err) => {
+      dropRerenderedEntries?.();
+      handlerFrame.task.raise(err, handlerFrame.parent);
+    };
+    frame
+      .loopWithFrame((loopFrame) => {
+        const pending = Array.from(
+          this.pendingFollowingSpineRerenders.entries(),
+        );
+        if (pending.length === 0) {
+          loopFrame.breakLoop();
+          return;
+        }
+        const [firstChangedViewItem] = pending.reduce((earliest, entry) =>
+          entry[0].item.spineIndex < earliest[0].item.spineIndex
+            ? entry
+            : earliest,
+        );
+        const firstChangedSpineIndex = firstChangedViewItem.item.spineIndex;
+        const resetSpineIndex = this.getPageNumberResetSpineIndexAfter(
+          firstChangedSpineIndex,
+        );
+        const endSpineIndex =
+          this.counterStore.customPageControlledCountersEverDeclared() ||
+          pending.some(
+            ([viewItem, throughReset]) =>
+              throughReset && viewItem.item.spineIndex < resetSpineIndex,
+          )
+            ? Infinity
+            : resetSpineIndex;
+        dropRerenderedEntries = () => {
+          for (const viewItem of this.pendingFollowingSpineRerenders.keys()) {
+            const spineIndex = viewItem.item.spineIndex;
+            if (
+              spineIndex >= firstChangedSpineIndex &&
+              spineIndex < endSpineIndex
+            ) {
+              this.pendingFollowingSpineRerenders.delete(viewItem);
+            }
+          }
+          dropRerenderedEntries = null;
+        };
+        this.rerenderFollowingSpines(firstChangedViewItem, endSpineIndex).then(
+          () => {
+            dropRerenderedEntries();
+            loopFrame.continueLoop();
+          },
+        );
+      })
+      .then(() => {
+        frame.finish(true);
+      });
+    return frame.result();
+  }
+
+  private rerenderFollowingSpines(
+    changedViewItem: OPFViewItem,
+    endSpineIndex: number,
+  ): Task.Result<boolean> {
+    const changedSpineIndex = changedViewItem.item.spineIndex;
+    const entries = this.spineItems
+      .slice(changedSpineIndex + 1)
+      .filter(
+        (viewItem): viewItem is OPFViewItem =>
+          !!viewItem && viewItem.item.spineIndex < endSpineIndex,
+      )
+      .map((viewItem) => ({
+        viewItem,
+        pageCountBeforeRerender: viewItem.pages.length,
+        wasComplete: viewItem.complete,
+        stalePages: new Set(viewItem.pages),
+        pageCounterStatePrepared: false,
+        adjustmentTotalBeforeRerender:
+          this.pageCountAdjustmentTotals.get(viewItem) ?? 0,
+      }));
+    if (entries.length === 0) {
+      return Task.newResult(true);
+    }
+    const countersBeforeRerender = cloneCounterValues(
+      this.counterStore.currentPageCounters,
+    );
+    const spineIndexOfCountersBeforeRerender =
+      this.spineIndexOfCurrentPageCounters;
+    this.followingSpineRerenderDepth++;
+    const finishRerender = (): void => {
+      this.followingSpineRerenderDepth--;
+      this.counterStore.currentPageCounters = countersBeforeRerender;
+      this.spineIndexOfCurrentPageCounters = spineIndexOfCountersBeforeRerender;
+    };
+    const frame = Task.newFrame<boolean>("rerenderFollowingSpines");
+    frame.handler = (handlerFrame, err) => {
+      finishRerender();
+      handlerFrame.task.raise(err, handlerFrame.parent);
+    };
+    let entryIndex = 0;
+    let pageIndex = 0;
+    frame
+      .loopWithFrame((loopFrame) => {
+        const entry = entries[entryIndex];
+        if (!entry) {
+          loopFrame.breakLoop();
+          return;
+        }
+        if (
+          this.spineItems[entry.viewItem.item.spineIndex] !== entry.viewItem
+        ) {
+          entryIndex++;
+          pageIndex = 0;
+          loopFrame.continueLoop();
+          return;
+        }
+        if (!entry.pageCounterStatePrepared) {
+          entry.pageCounterStatePrepared = true;
+          this.rebuildPageNumberOffset(entry.viewItem);
+          this.rebuildPageCounterStart(entry.viewItem);
+        }
+        const finishedRerendering = entry.wasComplete
+          ? pageIndex >= entry.viewItem.pages.length &&
+            pageIndex >= entry.viewItem.layoutPositions.length
+          : pageIndex >= entry.pageCountBeforeRerender ||
+            pageIndex >= entry.viewItem.pages.length;
+        if (finishedRerendering) {
+          const unappliedPageDelta = this.getUnappliedPageCountChange(
+            entry.viewItem,
+            entry.pageCountBeforeRerender,
+            entry.adjustmentTotalBeforeRerender,
+          );
+          this.adjustFollowingSpinesForPageCountChange(
+            entry.viewItem,
+            unappliedPageDelta,
+            null,
+            -1,
+          );
+          this.markSpineItemCompleteIfReady(entry.viewItem);
+          entryIndex++;
+          pageIndex = 0;
+          loopFrame.continueLoop();
+          return;
+        }
+        const position = entry.viewItem.layoutPositions[pageIndex];
+        const existingPage = entry.viewItem.pages[pageIndex];
+        pageIndex++;
+        if (
+          position === undefined ||
+          (existingPage && !entry.stalePages.has(existingPage))
+        ) {
+          loopFrame.continueLoop();
+          return;
+        }
+        this.renderSinglePage(entry.viewItem, position).then(() =>
+          loopFrame.continueLoop(),
+        );
+      })
+      .then(() => {
+        finishRerender();
+        frame.finish(true);
+      });
+    return frame.result();
+  }
+
+  private rebuildPageCounterStart(viewItem: OPFViewItem): void {
+    const previousViewItem = this.spineItems[viewItem.item.spineIndex - 1];
+    let precedingViewItem: OPFViewItem | null = null;
+    for (
+      let spineIndex = viewItem.item.spineIndex - 1;
+      spineIndex >= 0 && !precedingViewItem;
+      spineIndex--
+    ) {
+      const candidate = this.spineItems[spineIndex];
+      if (candidate?.pageCounterEnds[candidate.pages.length - 1]) {
+        precedingViewItem = candidate;
+      }
+    }
+    if (!precedingViewItem) {
+      return;
+    }
+    const existingPageCounterStart = viewItem.pageCounterStarts[0]?.["page"];
+    this.counterStore.currentPageCounters = cloneCounterValues(
+      precedingViewItem.pageCounterEnds[precedingViewItem.pages.length - 1],
+    );
+    const followsPreviousSpine = precedingViewItem === previousViewItem;
+    const pageCounterOffset = this.derivePageCounterOffset(
+      viewItem.item,
+      followsPreviousSpine ? previousViewItem : null,
+    );
+    if (pageCounterOffset !== null) {
+      this.counterStore.forceSetPageCounter(pageCounterOffset);
+    } else if (!followsPreviousSpine && existingPageCounterStart?.length) {
+      this.counterStore.forceSetPageCounter(
+        existingPageCounterStart[existingPageCounterStart.length - 1],
+      );
+    }
+    this.spineIndexOfCurrentPageCounters = viewItem.item.spineIndex;
+    viewItem.pageCounterStarts.splice(0);
+    viewItem.pageCounterEnds.splice(0);
+    viewItem.pageCounterStarts[0] = cloneCounterValues(
+      this.counterStore.currentPageCounters,
+    );
+  }
+
+  private derivePageCounterOffset(
+    item: OPFItem,
+    previousViewItem: OPFViewItem | null,
+  ): number | null {
+    if (item.startPage !== null) {
+      return item.startPage - 1;
+    }
+    const lastPageIndex = previousViewItem
+      ? previousViewItem.pages.length - 1
+      : -1;
+    const previousPageCounterEnds =
+      previousViewItem?.pageCounterEnds[lastPageIndex]?.["page"];
+    if (previousPageCounterEnds?.length) {
+      return (
+        previousPageCounterEnds[previousPageCounterEnds.length - 1] +
+        (item.skipPagesBefore ?? 0)
+      );
+    }
+    // pageCounterStarts stores the counter BEFORE auto-increment,
+    // so add 1 for the page's own increment.
+    const previousPageCounters =
+      previousViewItem?.pageCounterStarts[lastPageIndex]?.["page"];
+    if (!previousPageCounters?.length) {
+      return null;
+    }
+    return (
+      previousPageCounters[previousPageCounters.length - 1] +
+      1 +
+      (item.skipPagesBefore ?? 0)
+    );
+  }
+
+  private rerenderFollowingSpinesAfterLoadingGap(
+    viewItem: OPFViewItem,
+  ): Task.Result<boolean> {
+    const nextViewItem = this.spineItems[viewItem.item.spineIndex + 1];
+    if (
+      !viewItem.complete ||
+      !nextViewItem ||
+      !this.spineItemsWithEstimatedPageNumberOffset.has(nextViewItem)
+    ) {
+      return Task.newResult(true);
+    }
+    this.scheduleFollowingSpineRerender(viewItem, 0, true);
+    return this.drainPostponedWork();
+  }
+
+  private truncateViewItemAfterPage(
+    viewItem: OPFViewItem,
+    pageIndex: number,
+  ): Vtree.Page[] {
+    const retainedPageCount = pageIndex + 1;
+    const removedPages = viewItem.pages.splice(retainedPageCount);
+    viewItem.layoutPositions.splice(retainedPageCount);
+    viewItem.pageCounterStarts.splice(retainedPageCount);
+    viewItem.pageCounterEnds.splice(retainedPageCount);
+    if (removedPages.length) {
+      this.updateRenderedPageCount(
+        viewItem.item.spineIndex,
+        -removedPages.length,
+      );
+      this.counterStore.removeReferencesFromPages(
+        viewItem.item.spineIndex,
+        retainedPageCount,
+      );
+      this.postponedTargetHostPages = this.postponedTargetHostPages.filter(
+        (entry) =>
+          entry.viewItem !== viewItem || entry.pageIndex < retainedPageCount,
+      );
+    }
+    return removedPages;
   }
 
   private updateEPageRangesAfterPageCountChange(
@@ -2644,263 +3338,82 @@ export class OPFView implements Vgen.CustomRendererFactory {
       item.epage = nextEPage;
       nextEPage += item.epageCount;
     }
+    this.updateEPageCount();
+  }
+
+  private updateEPageCount(): void {
     this.opf.epageCount = this.opf.spine.reduce(
       (count, item) => count + item.epageCount,
       0,
     );
-    this.opf.epageCountCallback?.(this.opf.epageCount);
-  }
-
-  private rememberDeferredPageReplacement(
-    spineIndex: number,
-    page: Vtree.Page,
-  ): void {
-    const replacements = this.deferredPageReplacements;
-    let pages = replacements.get(spineIndex);
-    if (!pages) {
-      pages = [];
-      replacements.set(spineIndex, pages);
-    }
-    if (!pages.includes(page)) {
-      pages.push(page);
+    if (this.opf.epageCountCallback) {
+      this.opf.epageCountCallback(this.opf.epageCount);
     }
   }
 
-  private takeDeferredPageReplacement(
-    spineIndex: number,
-    newPage: Vtree.Page,
-  ): Vtree.Page | null {
-    const pages = this.deferredPageReplacements.get(spineIndex);
-    if (!pages) {
-      return null;
-    }
-    const pageIndex = pages.findIndex(
-      (page) =>
-        page.offset === newPage.offset &&
-        !!page.isBlankPage === !!newPage.isBlankPage,
-    );
-    if (pageIndex < 0) {
-      return null;
-    }
-    const [page] = pages.splice(pageIndex, 1);
-    if (pages.length === 0) {
-      this.deferredPageReplacements.delete(spineIndex);
-    }
-    return page;
-  }
-
-  private dispatchPageReplacement(
-    oldPage: Vtree.Page,
-    newPage: Vtree.Page,
-  ): void {
-    oldPage.dispatchEvent({
-      type: "replaced",
-      target: null,
-      currentTarget: null,
-      preventDefault: null,
-      newPage,
-    });
-  }
-
-  /**
-   * Detach stale rendered pages, remembering them so a later rebuilt page can
-   * dispatch the `replaced` event to any viewer still displaying them.
-   */
-  private retireStalePages(spineIndex: number, pages: Vtree.Page[]): void {
-    for (const stalePage of pages) {
-      this.rememberDeferredPageReplacement(spineIndex, stalePage);
-      stalePage.container.remove();
-    }
-  }
-
-  private clearFollowingSpineRelayoutState(): void {
-    this.relayoutingFollowingSpines = false;
-    this.relayoutingFollowingSpineStart = null;
-  }
-
-  private flushDeferredPageReplacements(viewItem: OPFViewItem): void {
-    const spineIndex = viewItem.item.spineIndex;
-    const oldPages = this.deferredPageReplacements.get(spineIndex);
-    if (!oldPages) {
+  private discardSpineItem(spineIndex: number): void {
+    const viewItem = this.spineItems[spineIndex];
+    if (!viewItem) {
       return;
     }
-    const newPages = viewItem.pages;
-    for (const oldPage of oldPages) {
-      const replacement = newPages.reduce<Vtree.Page | null>(
-        (closest, page) => {
-          if (!closest) {
-            return page;
-          }
-          const distance = Math.abs(page.offset - oldPage.offset);
-          const closestDistance = Math.abs(closest.offset - oldPage.offset);
-          if (distance !== closestDistance) {
-            return distance < closestDistance ? page : closest;
-          }
-          const sameKind = !!page.isBlankPage === !!oldPage.isBlankPage;
-          const closestSameKind =
-            !!closest.isBlankPage === !!oldPage.isBlankPage;
-          return sameKind && !closestSameKind ? page : closest;
-        },
+    const renderedPageIndex = this.getRenderedPageIndex(viewItem, 0);
+    const pageCount = viewItem.pages.length;
+    for (const page of viewItem.pages) {
+      page?.container?.remove();
+    }
+    if (pageCount) {
+      this.pageSheetSizeReporter(
         null,
+        {},
+        spineIndex,
+        renderedPageIndex,
+        -pageCount,
       );
-      if (replacement) {
-        this.dispatchPageReplacement(oldPage, replacement);
+      this.updateRenderedPageCount(spineIndex, -pageCount);
+      if (this.opf.epageIsRenderedPage) {
+        viewItem.item.epageCount = 0;
+        this.updateEPageCount();
       }
     }
-    this.deferredPageReplacements.delete(spineIndex);
-  }
-
-  private updateRetainedTargetCounters(): Set<string> {
-    const pages: Vtree.Page[] = [];
-    for (const viewItem of this.spineItems) {
-      if (viewItem) {
-        pages.push(...viewItem.pages);
-      }
+    this.counterStore.removeReferencesFromPages(spineIndex, 0);
+    this.counterStore.discardTargetSnapshotsOfSpine(spineIndex);
+    this.pendingFollowingSpineRerenders.delete(viewItem);
+    if (this.spineIndexOfCurrentPageCounters === spineIndex) {
+      this.spineIndexOfCurrentPageCounters = -1;
     }
-    const changedTargetIds = new Set<string>();
-    this.counterStore.updateTargetCounterNodesInPages(pages, changedTargetIds);
-    this.counterStore.updateTargetTextNodesInPages(pages, changedTargetIds);
-    this.counterStore.unresolveReferencesForTargets(changedTargetIds);
-    return changedTargetIds;
-  }
-
-  private resolveChangedRetainedTargetReferences(
-    targetIds: Set<string>,
-  ): Task.Result<any> {
-    const targetPages = new Map<
-      string,
-      {
-        viewItem: OPFViewItem;
-        page: Vtree.Page;
-        pageIndex: number;
-        nextLayoutPosition: Vtree.LayoutPosition | null;
-      }
-    >();
-    for (const id of targetIds) {
-      const position = this.counterStore.pageIndicesById[id];
-      if (!position) continue;
-      const viewItem = this.spineItems[position.spineIndex];
-      const page = viewItem?.pages[position.pageIndex];
-      if (!viewItem || !page) continue;
-      const key = `${position.spineIndex}:${position.pageIndex}`;
-      targetPages.set(key, {
-        viewItem,
-        page,
-        pageIndex: position.pageIndex,
-        nextLayoutPosition:
-          viewItem.layoutPositions[position.pageIndex + 1] || null,
-      });
-    }
-    const pages = Array.from(targetPages.values());
-    for (const target of pages) {
-      this.deferReferencesForPage(
-        target.viewItem,
-        target.page,
-        target.pageIndex,
-        target.nextLayoutPosition,
-      );
-    }
-    const first = pages[0];
-    return first
-      ? this.resolveDeferredReferencesAfterCounterScope(
-          first.viewItem,
-          first.page,
-          first.pageIndex,
-          first.nextLayoutPosition,
-        )
-      : Task.newResult(true);
-  }
-
-  private relayoutDeferredFollowingSpines(): number | null {
-    const firstSpine = this.deferredFollowingSpineRelayoutStart;
-    if (firstSpine == null) {
-      return null;
-    }
-    this.deferredFollowingSpineRelayoutStart = null;
-    this.removeDeferredReferencePages(
-      (entry) => entry.viewItem.item.spineIndex >= firstSpine,
+    this.postponedTargetHostPages = this.postponedTargetHostPages.filter(
+      (entry) => entry.viewItem !== viewItem,
     );
-    this.counterStore.discardReferencesFromSpine(firstSpine);
-    let lastInvalidatedSpine: number | null = null;
-    for (
-      let spineIndex = firstSpine;
-      spineIndex < this.spineItems.length;
-      spineIndex++
-    ) {
-      const viewItem = this.spineItems[spineIndex];
-      if (!viewItem) {
-        continue;
-      }
-      lastInvalidatedSpine = spineIndex;
-      this.retireStalePages(spineIndex, viewItem.pages);
-      this.spineItems[spineIndex] = null;
-      this.spineItemLoadingContinuations[spineIndex] = null;
-    }
-    return lastInvalidatedSpine;
+    this.spineItems[spineIndex] = null;
+    this.spineItemLoadingContinuations[spineIndex] = null;
   }
 
-  private rerenderDeferredFollowingSpines(
-    position: Position,
-  ): Task.Result<PageAndPosition | null> {
-    const frame: Task.Frame<PageAndPosition | null> = Task.newFrame(
-      "rerenderDeferredFollowingSpines",
-    );
-    const spineCount = this.opf?.spine?.length || this.spineItems.length;
-    const maxPasses = Math.max(3, spineCount * 2 + 2);
-    let passCount = 0;
-    let result: PageAndPosition | null = null;
-
-    frame.handler = (handlerFrame, err) => {
-      this.clearFollowingSpineRelayoutState();
-      handlerFrame.task.raise(err, handlerFrame.parent);
-    };
-
-    const runNextPass = (): void => {
-      const firstSpine = this.deferredFollowingSpineRelayoutStart;
-      if (firstSpine == null) {
-        this.clearFollowingSpineRelayoutState();
-        frame.finish(result);
-        return;
-      }
-      passCount++;
-      if (passCount > maxPasses) {
-        this.clearFollowingSpineRelayoutState();
-        frame.task.raise(
-          new Error("Cross-reference pagination did not stabilize"),
-          frame.parent,
-        );
-        return;
-      }
-
-      this.relayoutingFollowingSpines = true;
-      this.relayoutingFollowingSpineStart = firstSpine;
-      const lastInvalidatedSpine = this.relayoutDeferredFollowingSpines();
-      const rerenderPosition =
-        lastInvalidatedSpine != null
-          ? {
-              spineIndex: lastInvalidatedSpine,
-              pageIndex: Number.POSITIVE_INFINITY,
-              offsetInItem: -1,
-            }
-          : position;
-      this.renderPagesUpto(rerenderPosition, false).then((rerenderedResult) => {
-        result = rerenderedResult;
-        const changedTargetIds = this.updateRetainedTargetCounters();
-        // Patching generated reference text is insufficient when its width
-        // changes. Feed the changed targets back through the existing
-        // page-level reference resolver so only retained source pages are
-        // re-laid out. If one of those pages shrinks, it queues the following
-        // spine suffix for the next pass without discarding the target that
-        // supplied the resolved value.
-        this.resolveChangedRetainedTargetReferences(changedTargetIds).then(() =>
-          runNextPass(),
-        );
+  private removeTruncatedPages(
+    viewItem: OPFViewItem,
+    removedPages: Vtree.Page[],
+    replacementPage: Vtree.Page,
+    newPosition: Position,
+  ): void {
+    for (const removedPage of removedPages) {
+      removedPage.dispatchEvent({
+        type: "replaced",
+        target: null,
+        currentTarget: null,
+        preventDefault: null,
+        newPage: replacementPage,
+        newPosition,
       });
-    };
-
-    runNextPass();
-    return frame.result();
+      removedPage.container.remove();
+    }
+    this.pageSheetSizeReporter(
+      null,
+      {},
+      viewItem.item.spineIndex,
+      this.getRenderedPageIndex(viewItem, newPosition.pageIndex + 1),
+      -removedPages.length,
+    );
   }
+
   /**
    * Render a single page. If the new page contains elements with ids that are
    * referenced from other pages by 'target-counter()', those pages are rendered
@@ -2936,7 +3449,7 @@ export class OPFView implements Vgen.CustomRendererFactory {
     const prevPage =
       pageIndexToRender > 0 ? viewItem.pages[pageIndexToRender - 1] : null;
     const nextExistingPage = viewItem.pages[pageIndexToRender + 1];
-    let page = this.makePage(viewItem, pos);
+    let page = this.makePage(viewItem, pos, pageIndexToRender);
     this.resolvePageTypeForRenderSlot(
       viewItem,
       page,
@@ -2949,47 +3462,35 @@ export class OPFView implements Vgen.CustomRendererFactory {
 
     viewItem.instance.layoutNextPage(page, pos).then((posParam) => {
       pos = posParam;
-      if (!pos) {
-        // A rerender can make the final page move to an earlier slot. Remove
-        // stale following pages and their saved starts before storing the new
-        // final page in the requested slot.
-        const finalLength = pageIndexToRender + 1;
-        const pageCountChanged = viewItem.pages.length > finalLength;
-        if (pageCountChanged) {
-          this.updateEPageRangesAfterPageCountChange(viewItem, finalLength);
-        }
-        this.removeDeferredReferencePages(
-          (entry) =>
-            entry.viewItem === viewItem && entry.pageIndex >= finalLength,
-        );
-        for (
-          let stalePageIndex = finalLength;
-          stalePageIndex < viewItem.pages.length;
-          stalePageIndex++
-        ) {
-          this.counterStore.discardReferencesFromPage(
-            viewItem.item.spineIndex,
-            stalePageIndex,
-          );
-        }
-        this.retireStalePages(
-          viewItem.item.spineIndex,
-          viewItem.pages.slice(finalLength),
-        );
-        viewItem.pages.splice(finalLength);
-        viewItem.layoutPositions.splice(finalLength);
-        viewItem.pageCounterStarts.splice(finalLength);
-        if (pageCountChanged) {
-          // A page can shrink while it is recursively rerendered for a target
-          // in a later spine. Even during a suffix rebuild, already-rendered
-          // following spines then have stale absolute counters and starts, so
-          // queue them for the next stabilization pass.
-          this.deferFollowingSpinesForRelayout(viewItem.item.spineIndex);
-        }
-      }
       const pageIndex = pos ? pos.page - 1 : pageIndexToRender;
-      this.finishPageContainer(viewItem, page, pageIndex);
+      const removedPages = !pos
+        ? this.truncateViewItemAfterPage(viewItem, pageIndex)
+        : [];
+      const replacementPosition = removedPages.length
+        ? makePageAndPosition(page, pageIndex).position
+        : null;
+      this.finishPageContainer(viewItem, page, pageIndex, replacementPosition);
+      if (replacementPosition) {
+        this.removeTruncatedPages(
+          viewItem,
+          removedPages,
+          page,
+          replacementPosition,
+        );
+        this.adjustFollowingSpinesForPageCountChange(
+          viewItem,
+          -removedPages.length,
+          null,
+          -1,
+        );
+        this.scheduleFollowingSpineRerender(viewItem, -removedPages.length);
+      }
       this.counterStore.finishPage(page.spineIndex, pageIndex);
+      this.spineIndexOfCurrentPageCounters = viewItem.item.spineIndex;
+      viewItem.pageCounterEnds[pageIndex] = cloneCounterValues(
+        this.counterStore.currentPageCounters,
+      );
+
       const collectResult = Plugin.getHooksForName(
         Plugin.HOOKS.PAGINATION_PROGRESS,
       ).length
@@ -3010,6 +3511,7 @@ export class OPFView implements Vgen.CustomRendererFactory {
             ),
           )
           .then((resolvedPage) => {
+            restorePageNumberContext();
             if (!pos && !inCounterResolveScopeAtStart) {
               // A final page can be produced by a nested relayout while
               // resolving a target reference. Mark the spine complete only
@@ -3017,10 +3519,16 @@ export class OPFView implements Vgen.CustomRendererFactory {
               // can start the next spine against counter state still in use.
               this.markSpineItemCompleteIfReady(viewItem);
             }
-            restorePageNumberContext();
+            const resolvedPageIndex = viewItem.pages.indexOf(resolvedPage);
+            const retainedPageIndex =
+              resolvedPageIndex < 0 ? pageIndex : resolvedPageIndex;
             frame.finish({
-              pageAndPosition: makePageAndPosition(resolvedPage, pageIndex),
-              nextLayoutPosition: pos,
+              pageAndPosition: makePageAndPosition(
+                resolvedPage,
+                retainedPageIndex,
+              ),
+              nextLayoutPosition:
+                viewItem.layoutPositions[retainedPageIndex + 1] ?? null,
             });
           });
       });
@@ -3077,121 +3585,92 @@ export class OPFView implements Vgen.CustomRendererFactory {
   /**
    * Find a page corresponding to a specified position among already laid out
    * pages.
-   * @param sync If true, find the page synchronously (not waiting another
-   *     rendering task)
+   * @param sync If true, lay out the missing page in this task once no
+   *     other task is rendering or resolving references; otherwise wait for
+   *     a rendering task to produce it
+   * @param renderedOnly If true, look the page up among the rendered pages
+   *     only, without waiting for any task
    */
   findPage(
     position: Position,
     sync: boolean,
+    renderedOnly: boolean = false,
   ): Task.Result<PageAndPosition | null> {
+    if (renderedOnly && !this.spineItems[position.spineIndex]) {
+      return Task.newResult(null as PageAndPosition | null);
+    }
     const frame: Task.Frame<PageAndPosition | null> = Task.newFrame("findPage");
-    const waitForSuffixRelayout = (): void => {
-      if (sync) {
-        frame.finish(null);
-        return;
-      }
-      frame.sleep(100).then(() => {
-        this.findPage(position, sync).then((result) => frame.finish(result));
-      });
-    };
-
-    this.waitForPreviousSpines(position.spineIndex, sync).then(() => {
-      const relayoutingSpine = this.relayoutingFollowingSpineStart;
-      if (relayoutingSpine != null && relayoutingSpine <= position.spineIndex) {
-        // relayoutDeferredFollowingSpines clears the pending marker before it
-        // rebuilds the suffix. Keep navigation behind the in-progress boundary
-        // so it cannot observe or concurrently lay out the partial suffix.
-        waitForSuffixRelayout();
-        return;
-      }
-      const firstInvalidSpine = this.deferredFollowingSpineRelayoutStart;
-      if (
-        firstInvalidSpine != null &&
-        firstInvalidSpine <= position.spineIndex
-      ) {
-        if (this.renderingAllPages) {
-          // Full pagination owns the shared StyleInstance and will consume
-          // the suffix marker. Do not let navigation return a cached page
-          // from that invalid suffix while the rebuild is still pending.
-          waitForSuffixRelayout();
-          return;
-        }
-        if (this.isRenderingPageInAnotherTask()) {
-          // Another navigation task is already rebuilding the invalid suffix.
-          // Retry after it has released the shared layout and counter state.
-          waitForSuffixRelayout();
-          return;
-        }
-        // A cached page in the invalid suffix must not bypass the deferred
-        // rebuild. renderPage() consumes the marker before returning it.
-        this.renderPage(position).then((result) => frame.finish(result));
-        return;
-      }
-      this.getPageViewItem(position.spineIndex).then((viewItem) => {
-        if (!viewItem) {
-          frame.finish(null);
-          return;
-        }
-        let resultPage: Vtree.Page | null = null;
-        let pageIndex: number;
-        frame
-          .loopWithFrame((loopFrame) => {
-            const normalizedPosition = this.normalizeSeekPosition(
-              position,
-              viewItem,
-            );
-            pageIndex = normalizedPosition.pageIndex;
-            resultPage = viewItem.pages[pageIndex];
-            if (resultPage) {
-              loopFrame.breakLoop();
-            } else if (viewItem.complete) {
-              pageIndex = viewItem.pages.length - 1;
+    this.waitForPreviousSpines(position.spineIndex, sync || renderedOnly).then(
+      () => {
+        this.getPageViewItem(position.spineIndex).then((viewItem) => {
+          if (!viewItem) {
+            frame.finish(null);
+            return;
+          }
+          let resultPage: Vtree.Page | null = null;
+          let pageIndex: number;
+          frame
+            .loopWithFrame((loopFrame) => {
+              const normalizedPosition = this.normalizeSeekPosition(
+                position,
+                viewItem,
+              );
+              pageIndex = normalizedPosition.pageIndex;
               resultPage = viewItem.pages[pageIndex];
-              loopFrame.breakLoop();
-            } else if (sync) {
-              this.renderPage(normalizedPosition).then((result) => {
-                if (result) {
-                  resultPage = result.page;
-                  pageIndex = result.position.pageIndex;
-                }
+              if (resultPage) {
                 loopFrame.breakLoop();
-              });
-            } else if (this.isRenderingPageInAnotherTask()) {
-              // A background task is already materializing pages. Wait for
-              // the requested page to appear instead of rendering the same
-              // shared StyleInstance and CounterStore concurrently (Issue #2047).
-              frame.sleep(100).then(() => {
-                loopFrame.continueLoop();
-              });
-            } else if (
-              pageIndex < viewItem.layoutPositions.length &&
-              !viewItem.pages[pageIndex]
-            ) {
-              // The page has a pending layout position that was never
-              // materialized (e.g. created during target-text resolution
-              // but blocked from cascading, or the spine was recreated
-              // during navigation). Render it now instead of polling
-              // forever waiting for a nonexistent concurrent task.
-              this.renderPage(normalizedPosition).then((result) => {
-                if (result) {
-                  resultPage = result.page;
-                  pageIndex = result.position.pageIndex;
-                }
+              } else if (viewItem.complete) {
+                pageIndex = viewItem.pages.length - 1;
+                resultPage = viewItem.pages[pageIndex];
                 loopFrame.breakLoop();
-              });
-            } else {
-              // Wait for the layout task and retry
-              frame.sleep(100).then(() => {
-                loopFrame.continueLoop();
-              });
-            }
-          })
-          .then(() => {
-            Asserts.assert(resultPage);
-            frame.finish(makePageAndPosition(resultPage, pageIndex));
-          });
-      });
-    });
+              } else if (renderedOnly) {
+                loopFrame.breakLoop();
+              } else if (sync && !this.isRenderingOrResolvingInAnotherTask()) {
+                this.renderPage(normalizedPosition).then((result) => {
+                  if (result) {
+                    resultPage = result.page;
+                    pageIndex = result.position.pageIndex;
+                  }
+                  loopFrame.breakLoop();
+                });
+              } else if (this.isRenderingOrResolvingInAnotherTask()) {
+                // A background task is already materializing pages. Wait for
+                // the requested page to appear instead of rendering the same
+                // shared StyleInstance and CounterStore concurrently (Issue #2047).
+                frame.sleep(100).then(() => {
+                  loopFrame.continueLoop();
+                });
+              } else if (
+                pageIndex < viewItem.layoutPositions.length &&
+                !viewItem.pages[pageIndex]
+              ) {
+                // The page has a pending layout position that was never
+                // materialized (e.g. created during target-text resolution
+                // but blocked from cascading, or the spine was recreated
+                // during navigation). Render it now instead of polling
+                // forever waiting for a nonexistent concurrent task.
+                this.renderPage(normalizedPosition).then((result) => {
+                  if (result) {
+                    resultPage = result.page;
+                    pageIndex = result.position.pageIndex;
+                  }
+                  loopFrame.breakLoop();
+                });
+              } else {
+                // Wait for the layout task and retry
+                frame.sleep(100).then(() => {
+                  loopFrame.continueLoop();
+                });
+              }
+            })
+            .then(() => {
+              frame.finish(
+                resultPage ? makePageAndPosition(resultPage, pageIndex) : null,
+              );
+            });
+        });
+      },
+    );
     return frame.result();
   }
 
@@ -3212,33 +3691,25 @@ export class OPFView implements Vgen.CustomRendererFactory {
       "renderPage",
       (frame) => {
         this.renderPageTracked(position).then((result) => {
-          const firstSpine = this.deferredFollowingSpineRelayoutStart;
-          if (
-            !this.renderingAllPages &&
-            !this.relayoutingFollowingSpines &&
-            firstSpine != null &&
-            firstSpine <= position.spineIndex
-          ) {
-            // In on-demand pagination there is no final renderAllPages pass.
-            // Rebuild the invalid suffix only after the current page render
-            // has unwound. A changed retained reference can move its source
-            // page too, so keep rebuilding the affected suffix until stable.
-            this.rerenderDeferredFollowingSpines(position).then(() => {
-              this.renderPageTracked(position).then((requestedResult) => {
-                this.pageSheetSizeTruncator(this.getRenderedPageSizeCount());
+          const viewItem = this.spineItems[position.spineIndex];
+          const rerenderResult = viewItem
+            ? this.rerenderFollowingSpinesAfterLoadingGap(viewItem)
+            : Task.newResult(true);
+          rerenderResult
+            .thenAsync(() => this.drainPostponedWork())
+            .then(() => {
+              const currentResult =
+                result && !result.page.container.parentElement
+                  ? this.renderPageTracked(position)
+                  : Task.newResult(result);
+              currentResult.then((finalResult) => {
                 endRendering();
-                frame.finish(requestedResult);
+                frame.finish(finalResult);
               });
             });
-            return;
-          }
-          this.pageSheetSizeTruncator(this.getRenderedPageSizeCount());
-          endRendering();
-          frame.finish(result);
         });
       },
       (frame, err) => {
-        this.clearFollowingSpineRelayoutState();
         endRendering();
         frame.task.raise(err, frame.parent);
       },
@@ -3265,10 +3736,14 @@ export class OPFView implements Vgen.CustomRendererFactory {
     }
   }
 
-  private isRenderingPageInAnotherTask(): boolean {
+  isRenderingOrResolvingInAnotherTask(): boolean {
     const currentTask = Task.currentTask();
-    return Array.from(this.renderingPageTasks.keys()).some(
-      (task) => task !== currentTask,
+    return (
+      (this.postponedReferenceResolutionTask !== null &&
+        this.postponedReferenceResolutionTask !== currentTask) ||
+      Array.from(this.renderingPageTasks.keys()).some(
+        (task) => task !== currentTask,
+      )
     );
   }
 
@@ -3349,58 +3824,49 @@ export class OPFView implements Vgen.CustomRendererFactory {
     return frame.result();
   }
 
+  /**
+   * Returns the last page, or null when it has been replaced by a page that
+   * is not rendered yet.
+   */
   renderAllPages(): Task.Result<PageAndPosition | null> {
     const frame: Task.Frame<PageAndPosition | null> =
       Task.newFrame("renderAllPages");
-    const finalPosition = {
-      spineIndex: this.opf.spine.length - 1,
-      pageIndex: Number.POSITIVE_INFINITY,
-      offsetInItem: -1,
-    };
-    let result: PageAndPosition | null = null;
-    this.renderingAllPages = true;
-    frame.handler = (handlerFrame, err) => {
-      this.clearFollowingSpineRelayoutState();
-      this.renderingAllPages = false;
-      handlerFrame.task.raise(err, handlerFrame.parent);
-    };
-    this.renderPagesUpto(finalPosition, false).then((initialResult) => {
-      result = initialResult;
-      const finishAfterImages = () => {
-        // Wait until all images are loaded (Issue #1321)
-        frame
-          .loopWithFrame((loopFrame) => {
-            if (
-              this.spineItems.some((viewItem) =>
-                viewItem?.pages.some((page) =>
-                  page?.fetchers.some((fetcher) => !fetcher.arrived),
-                ),
-              )
-            ) {
-              frame.sleep(100).then(() => {
-                loopFrame.continueLoop();
-              });
-            } else {
-              loopFrame.breakLoop();
-            }
-          })
-          .then(() => {
-            this.pageSheetSizeTruncator(this.getRenderedPageSizeCount());
-            this.renderingAllPages = false;
-            frame.finish(result);
-          });
-      };
-      const firstSpine = this.deferredFollowingSpineRelayoutStart;
-      if (firstSpine == null) {
-        finishAfterImages();
-        return;
-      }
-      this.rerenderDeferredFollowingSpines(finalPosition).then(
-        (rerenderedResult) => {
-          result = rerenderedResult;
-          finishAfterImages();
-        },
-      );
+    this.renderPagesUpto(
+      {
+        spineIndex: this.opf.spine.length - 1,
+        pageIndex: Number.POSITIVE_INFINITY,
+        offsetInItem: -1,
+      },
+      false,
+    ).then((renderedResult) => {
+      this.drainPostponedWork()
+        .thenAsync(() =>
+          renderedResult && !renderedResult.page.container.parentElement
+            ? this.findPage(renderedResult.position, true, true)
+            : Task.newResult(renderedResult),
+        )
+        .then((result) => {
+          // Wait until all images are loaded (Issue #1321)
+          frame
+            .loopWithFrame((loopFrame) => {
+              if (
+                this.spineItems.some((viewItem) =>
+                  viewItem?.pages.some((page) =>
+                    page?.fetchers.some((fetcher) => !fetcher.arrived),
+                  ),
+                )
+              ) {
+                frame.sleep(100).then(() => {
+                  loopFrame.continueLoop();
+                });
+              } else {
+                loopFrame.breakLoop();
+              }
+            })
+            .then(() => {
+              frame.finish(result);
+            });
+        });
     });
     return frame.result();
   }
@@ -3483,12 +3949,16 @@ export class OPFView implements Vgen.CustomRendererFactory {
 
   /**
    * Move to the next page position and render page.
-   * @param sync If true, get the page synchronously (not waiting another
-   *     rendering task)
+   * @param sync If true, lay out the missing page in this task (after any
+   *     other rendering task has finished) instead of waiting for a
+   *     rendering task to produce it
+   * @param renderedOnly If true, use only the pages laid out so far, without
+   *     laying out or discarding anything
    */
   nextPage(
     position: Position,
     sync: boolean,
+    renderedOnly: boolean = false,
   ): Task.Result<PageAndPosition | null> {
     let spineIndex = position.spineIndex;
     let pageIndex = position.pageIndex;
@@ -3511,12 +3981,14 @@ export class OPFView implements Vgen.CustomRendererFactory {
         const nextViewItem = this.spineItems[spineIndex];
         const nextPage = nextViewItem && nextViewItem.pages[0];
         const currentPage = viewItem.pages[viewItem.pages.length - 1];
-        if (nextPage && currentPage && nextPage.side == currentPage.side) {
-          nextViewItem.pages.forEach((page) => {
-            if (page.container) page.container.remove();
-          });
-          this.spineItems[spineIndex] = null;
-          this.spineItemLoadingContinuations[spineIndex] = null;
+        if (
+          !renderedOnly &&
+          !this.isRenderingOrResolvingInAnotherTask() &&
+          nextPage &&
+          currentPage &&
+          nextPage.side == currentPage.side
+        ) {
+          this.discardSpineItem(spineIndex);
         }
       } else {
         pageIndex++;
@@ -3524,6 +3996,7 @@ export class OPFView implements Vgen.CustomRendererFactory {
       this.findPage(
         { spineIndex, pageIndex, offsetInItem: -1 },
         sync,
+        renderedOnly,
       ).thenFinish(frame);
     });
     return frame.result();
@@ -3531,10 +4004,12 @@ export class OPFView implements Vgen.CustomRendererFactory {
 
   /**
    * Move to the previous page and render it.
+   * @param renderedOnly If true, use the rendered pages only
    */
   previousPage(
     position: Position,
     sync: boolean,
+    renderedOnly: boolean = false,
   ): Task.Result<PageAndPosition | null> {
     let spineIndex = position.spineIndex;
     let pageIndex = position.pageIndex;
@@ -3547,7 +4022,11 @@ export class OPFView implements Vgen.CustomRendererFactory {
     } else {
       pageIndex--;
     }
-    return this.findPage({ spineIndex, pageIndex, offsetInItem: -1 }, sync);
+    return this.findPage(
+      { spineIndex, pageIndex, offsetInItem: -1 },
+      sync,
+      renderedOnly,
+    );
   }
 
   /**
@@ -3563,45 +4042,87 @@ export class OPFView implements Vgen.CustomRendererFactory {
 
   /**
    * Get a spread containing the currently displayed page.
-   * @param sync If true, get the spread synchronously (not waiting another
-   *     rendering task)
+   * @param sync If true, lay out the missing page in this task (after any
+   *     other rendering task has finished) instead of waiting for a
+   *     rendering task to produce it
+   * @param renderedOnly If true, use only the pages laid out so far, without
+   *     laying out or discarding anything; the spread then reports whether its
+   *     pairing is still pending on a page that laying out or discarding could
+   *     provide
    */
-  getSpread(position: Position, sync: boolean): Task.Result<Vtree.Spread> {
+  getSpread(
+    position: Position,
+    sync: boolean,
+    renderedOnly: boolean = false,
+  ): Task.Result<Vtree.Spread> {
     const page = this.getPage(position);
     if (!page) {
-      return Task.newResult({ left: null, right: null });
+      return Task.newResult({
+        left: null,
+        right: null,
+        pairingPending: false,
+      });
     }
     const frame: Task.Frame<Vtree.Spread> = Task.newFrame("getSpread");
     const isLeft = page.side === Constants.PageSide.LEFT;
-    let other: Task.Result<PageAndPosition | null>;
-    if (this.isRectoPage(page, position)) {
-      other = this.previousPage(position, sync);
-    } else {
-      other = this.nextPage(position, sync);
-    }
+    const isRecto = this.isRectoPage(page, position);
+    const other = isRecto
+      ? this.previousPage(position, sync, renderedOnly)
+      : this.nextPage(position, sync, renderedOnly);
     other.then((otherPageAndPosition) => {
       // this page may be replaced during nextPage(), so get thisPage again.
       const thisPage = this.getPage(position);
+      if (!thisPage) {
+        frame.finish({ left: null, right: null, pairingPending: false });
+        return;
+      }
 
       let otherPage = otherPageAndPosition && otherPageAndPosition.page;
       if (otherPage && otherPage.side === thisPage.side) {
         // otherPage must not be same side
         otherPage = null;
       }
+      const pairingPending =
+        renderedOnly &&
+        !otherPage &&
+        (isRecto
+          ? this.hasPageBefore(position)
+          : this.mayHavePageAfter(position));
 
       if (isLeft) {
-        frame.finish({ left: thisPage, right: otherPage });
+        frame.finish({
+          left: thisPage,
+          right: otherPage,
+          pairingPending,
+        });
       } else {
-        frame.finish({ left: otherPage, right: thisPage });
+        frame.finish({
+          left: otherPage,
+          right: thisPage,
+          pairingPending,
+        });
       }
     });
     return frame.result();
   }
 
+  private hasPageBefore(position: Position): boolean {
+    return position.pageIndex > 0 || position.spineIndex > 0;
+  }
+
+  private mayHavePageAfter(position: Position): boolean {
+    const viewItem = this.spineItems[position.spineIndex];
+    if (!viewItem?.complete || position.pageIndex < viewItem.pages.length - 1) {
+      return true;
+    }
+    return position.spineIndex < this.opf.spine.length - 1;
+  }
+
   /**
    * Move to the next spread and render pages.
-   * @param sync If true, get the spread synchronously (not waiting another
-   *     rendering task)
+   * @param sync If true, lay out the missing page in this task (after any
+   *     other rendering task has finished) instead of waiting for a
+   *     rendering task to produce it
    * @returns The 'verso' page of the next spread.
    */
   nextSpread(
@@ -3830,6 +4351,7 @@ export class OPFView implements Vgen.CustomRendererFactory {
   makePage(
     viewItem: OPFViewItem,
     pos: Vtree.LayoutPosition | null,
+    pageIndex: number,
   ): Vtree.Page {
     const viewport = viewItem.instance.viewport;
     const pageCont = viewport.document.createElement("div");
@@ -3850,7 +4372,7 @@ export class OPFView implements Vgen.CustomRendererFactory {
     page.offset = viewItem.instance.getPosition(pos);
     if (
       page.offset === 0 &&
-      !(viewItem.instance.blankPageAtStart && viewItem.pages.length === 0)
+      !(viewItem.instance.blankPageAtStart && pageIndex === 0)
     ) {
       const id = this.opf.documentURLTransformer.transformFragment(
         "",
@@ -4031,6 +4553,21 @@ export class OPFView implements Vgen.CustomRendererFactory {
     };
   }
 
+  private restorePageCounterStateFromPreviousSpine(
+    previousViewItem: OPFViewItem | null | undefined,
+  ): void {
+    const previousPageCounterEnd =
+      previousViewItem?.complete && previousViewItem.pages.length
+        ? previousViewItem.pageCounterEnds[previousViewItem.pages.length - 1]
+        : null;
+    if (previousPageCounterEnd) {
+      this.counterStore.currentPageCounters = cloneCounterValues(
+        previousPageCounterEnd,
+      );
+      this.spineIndexOfCurrentPageCounters = previousViewItem.item.spineIndex;
+    }
+  }
+
   getPageViewItem(spineIndex: number): Task.Result<OPFViewItem | null> {
     if (spineIndex === -1 || spineIndex >= this.opf.spine.length) {
       return Task.newResult<OPFViewItem | null>(null);
@@ -4090,8 +4627,10 @@ export class OPFView implements Vgen.CustomRendererFactory {
       }
       const isVersoFirstPage = this.spineItems[0]?.instance.isVersoFirstPage;
       const previousViewItem = this.spineItems[spineIndex - 1];
+      this.restorePageCounterStateFromPreviousSpine(previousViewItem);
       let pageNumberOffset: number;
       let pageCounterOffset: number;
+      let pageNumberOffsetEstimated = false;
       if (item.startPage !== null) {
         pageNumberOffset = item.startPage - 1;
         pageCounterOffset = pageNumberOffset;
@@ -4102,6 +4641,7 @@ export class OPFView implements Vgen.CustomRendererFactory {
         ) {
           // When navigate to a new spine item skipping the previous items,
           // give up calculate pageNumberOffset and use epage (or spineIndex if epage is unset).
+          pageNumberOffsetEstimated = true;
           pageNumberOffset = item.epage || spineIndex;
           if (
             !this.opf.prePaginated &&
@@ -4111,53 +4651,33 @@ export class OPFView implements Vgen.CustomRendererFactory {
             // (odd and even are reversed if isVersoFirstPage is true)
             pageNumberOffset++;
           }
+          pageNumberOffset += item.skipPagesBefore ?? 0;
           pageCounterOffset = pageNumberOffset;
         } else {
-          pageNumberOffset = previousViewItem
-            ? previousViewItem.instance.pageNumberOffset +
-              previousViewItem.pages.length
-            : 0;
+          pageNumberOffset =
+            this.derivePageNumberOffset(item, previousViewItem) ??
+            item.skipPagesBefore ??
+            0;
           // Derive the page counter offset from the previous spine's last
-          // rendered page counter start rather than the global
-          // currentPageCounters, which may reflect stale state from a later
-          // spine that has been destroyed and is being recreated (e.g. after
-          // target-text reflow expanded an earlier spine).
-          // Note: pageCounterStarts is captured BEFORE updatePageCounters()
-          // applies counter-increment, so +1 is added for the standard page
-          // auto-increment. Using pageCounterStarts instead of
-          // pageCountersById because the latter can be overwritten during
-          // resolve-scope cascade re-renders (finishPage), making it
-          // unreliable for offset derivation.
-          const prevLastPageCounterStarts =
-            previousViewItem &&
-            previousViewItem.pageCounterStarts[
-              previousViewItem.pages.length - 1
-            ];
-          const prevLastPageCounters =
-            prevLastPageCounterStarts && prevLastPageCounterStarts["page"];
-          if (prevLastPageCounters && prevLastPageCounters.length) {
-            // pageCounterStarts stores the counter BEFORE auto-increment,
-            // so add 1 for the page's own increment.
-            pageCounterOffset =
-              prevLastPageCounters[prevLastPageCounters.length - 1] + 1;
-          } else {
-            const counters = this.counterStore.currentPageCounters["page"];
-            pageCounterOffset =
-              !counters || !counters.length
-                ? pageNumberOffset
-                : counters[counters.length - 1];
-          }
+          // rendered page counter end (or start plus one) when it is
+          // available, falling back to the global currentPageCounters.
+          const counters = this.counterStore.currentPageCounters["page"];
+          pageCounterOffset =
+            this.derivePageCounterOffset(item, previousViewItem) ??
+            (counters?.length
+              ? counters[counters.length - 1] + (item.skipPagesBefore ?? 0)
+              : pageNumberOffset);
 
           // Note: The "page" counter value differs to the "page-number" value
           // if the "page" counter has been reset by counter-reset/increment.
           // (Fix for issue #701)
         }
-        if (item.skipPagesBefore !== null) {
-          pageNumberOffset += item.skipPagesBefore;
-          pageCounterOffset += item.skipPagesBefore;
-        }
       }
       this.counterStore.forceSetPageCounter(pageCounterOffset);
+      this.spineIndexOfCurrentPageCounters = spineIndex;
+      const initialPageCounters = cloneCounterValues(
+        this.counterStore.currentPageCounters,
+      );
       // For env(pub-title) and env(doc-title)
       const pubTitles = this.opf.metadata && this.opf.metadata[metaTerms.title];
       const pubTitle = (pubTitles && pubTitles[0] && pubTitles[0]["v"]) || "";
@@ -4194,9 +4714,13 @@ export class OPFView implements Vgen.CustomRendererFactory {
           layoutPositions: [null],
           pages: [],
           complete: false,
-          pageCounterStarts: [],
+          pageCounterStarts: [initialPageCounters],
+          pageCounterEnds: [],
         };
         this.spineItems[spineIndex] = viewItem;
+        if (pageNumberOffsetEstimated) {
+          this.spineItemsWithEstimatedPageNumberOffset.add(viewItem);
+        }
 
         frame.finish(viewItem);
         loadingContinuations.forEach((c) => {
@@ -4212,8 +4736,20 @@ export class OPFView implements Vgen.CustomRendererFactory {
     for (const item of items) {
       if (item) {
         item.pages.splice(0);
+        item.layoutPositions.splice(0, item.layoutPositions.length, null);
+        item.pageCounterStarts.splice(0);
+        item.pageCounterEnds.splice(0);
+        item.complete = false;
       }
     }
+    this.spineItemsWithEstimatedPageNumberOffset = new WeakSet();
+    this.renderedPageCountFenwickTree = [];
+    this.postponedTargetHostPages = [];
+    this.pendingFollowingSpineRerenders.clear();
+    this.spineIndexOfCurrentPageCounters = -1;
+    this.resolvingPostponedReferences = false;
+    this.postponedReferenceResolutionTask = null;
+    this.releasePostponedReferenceWaiters(new RenderingCanceledError());
     this.viewport.clear();
   }
 

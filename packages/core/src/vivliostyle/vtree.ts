@@ -255,6 +255,7 @@ export class Page extends Base.SimpleEventTarget {
 export type Spread = {
   left: Page | null;
   right: Page | null;
+  pairingPending?: boolean;
 };
 
 export const Whitespace = Vtree.Whitespace;

@@ -172,6 +172,8 @@ Returns the current page progression of the viewer. If no document is loaded, re
 
 ### `CoreViewer.getPageSizes()`
 
+Returns the sheet sizes (page size plus crop offsets) of the pages rendered so far, in page order.
+
 ###### Returns
 
 Array<{width: number, height: number}>

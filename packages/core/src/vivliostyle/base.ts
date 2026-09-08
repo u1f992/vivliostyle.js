@@ -768,6 +768,7 @@ export type Event = {
   currentTarget?;
   preventDefault?;
   newPage?;
+  newPosition?;
   anchorElement?;
   href?;
   content?;
