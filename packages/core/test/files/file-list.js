@@ -431,7 +431,25 @@ module.exports = [
         file: "target-counter-missing-page.html",
         title: "target-counter() missing page (Issue #1498)",
       },
+      {
+        file: "target-counter-oscillation.html",
+        title: "target-counter() layout oscillation",
+        skipLayoutRegression: true,
+      },
+      {
+        file: "target-counter-oscillation-multiple/publication.json",
+        title: "target-counter() layout oscillation across spines",
+        skipLayoutRegression: true,
+      },
       { file: "target-text.html", title: "target-text() - Basic Tests" },
+      {
+        file: "target-text-pagination.html",
+        title: "Repagination after target-text() shrinks a document",
+      },
+      {
+        file: "target-text-shrink-multiple/publication.json",
+        title: "target-text() shrink across spines",
+      },
       {
         file: "target-text-running-element.html",
         title: "target-text() in Running Elements",
@@ -781,7 +799,7 @@ module.exports = [
       },
       {
         file: "page_breaks/break-before-flex-at-page-start.html",
-        title: "Consumed break-before on a flex box at page start",
+        title: "Target moved back before a forced break on a flex box",
       },
       {
         file: "page_breaks/break_left_right.html",

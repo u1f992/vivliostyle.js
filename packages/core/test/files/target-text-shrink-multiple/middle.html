@@ -1,0 +1,32 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>middle chapter after target-text shrink</title>
+    <style>
+      @page {
+        size: 80px 84px;
+        margin: 8px 0 0;
+        counter-increment: chapter-page;
+        @top-center {
+          content: "MARGIN";
+          font: 8px / 1 monospace;
+        }
+      }
+      html {
+        break-before: right;
+      }
+      p {
+        margin: 0;
+        inline-size: 100%;
+        font: 16px / 1 monospace;
+      }
+      #middle::after {
+        content: " page=" counter(page) " custom=" counter(chapter-page);
+      }
+    </style>
+  </head>
+  <body>
+    <p id="middle">m</p>
+  </body>
+</html>

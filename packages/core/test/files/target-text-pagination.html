@@ -1,0 +1,44 @@
+<!doctype html>
+<!-- Expected: two pages once the references resolve to "a"; #target sits on page 2. -->
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>target-text pagination</title>
+    <style>
+      @page {
+        size: 80px 84px;
+        margin: 0;
+      }
+      p {
+        widows: 1;
+        orphans: 1;
+        margin: 0;
+        inline-size: 7.5ch;
+        font: 16px / 1 monospace;
+      }
+      .xref::before {
+        content: target-text(attr(href url));
+      }
+    </style>
+  </head>
+  <body>
+    <p>
+      <a class="xref" href="#target"></a> <a class="xref" href="#target"></a>
+      <a class="xref" href="#target"></a> <a class="xref" href="#target"></a>
+      <a class="xref" href="#target"></a> <a class="xref" href="#target"></a>
+      <a class="xref" href="#target"></a> <a class="xref" href="#target"></a>
+      <a class="xref" href="#target"></a> <a class="xref" href="#target"></a>
+      <a class="xref" href="#target"></a> <a class="xref" href="#target"></a>
+      <a class="xref" href="#target"></a> <a class="xref" href="#target"></a>
+      <a class="xref" href="#target"></a> <a class="xref" href="#target"></a>
+      <a class="xref" href="#target"></a> <a class="xref" href="#target"></a>
+      <a class="xref" href="#target"></a> <a class="xref" href="#target"></a>
+      <a class="xref" href="#target"></a> <a class="xref" href="#target"></a>
+      <a class="xref" href="#target"></a> <a class="xref" href="#target"></a>
+      <a class="xref" href="#target"></a> <a class="xref" href="#target"></a>
+      <a class="xref" href="#target"></a> <a class="xref" href="#target"></a>
+      <a class="xref" href="#target"></a> <a class="xref" href="#target"></a>
+    </p>
+    <p><span id="target">a</span></p>
+  </body>
+</html>

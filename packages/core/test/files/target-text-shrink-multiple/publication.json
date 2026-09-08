@@ -1,0 +1,21 @@
+{
+  "@context": ["https://schema.org", "https://www.w3.org/ns/pub-context"],
+  "type": "Book",
+  "name": "target-text shrink across spines",
+  "readingOrder": [
+    {
+      "url": "toc.html",
+      "name": "Contents",
+      "rel": "contents",
+      "type": "LinkedResource"
+    },
+    {
+      "url": "middle.html",
+      "name": "Middle"
+    },
+    {
+      "url": "chapter.html",
+      "name": "Chapter"
+    }
+  ]
+}

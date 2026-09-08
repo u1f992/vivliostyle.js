@@ -1,0 +1,35 @@
+<!doctype html>
+<!-- Expected: two pages; the reference settles as "S" and #target sits on page 2 after pinning. -->
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>target-counter layout oscillation</title>
+    <style>
+      @page {
+        size: 160px 68px;
+        margin: 0;
+      }
+      @counter-style oscillate {
+        system: fixed;
+        symbols: "L\A L\A L\A L" "S";
+        suffix: "";
+      }
+      * {
+        margin: 0;
+      }
+      html {
+        font: 16px / 16px monospace;
+        widows: 1;
+        orphans: 1;
+      }
+      .ref::before {
+        content: target-counter(attr(data-href), page, oscillate);
+        white-space: pre-line;
+      }
+    </style>
+  </head>
+  <body>
+    <div class="ref" data-href="#target"></div>
+    <div id="target">target</div>
+  </body>
+</html>

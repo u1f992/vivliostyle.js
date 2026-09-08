@@ -1,0 +1,61 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>target-text shrink across spines</title>
+    <style>
+      @page {
+        size: 80px 84px;
+        margin: 0;
+        counter-increment: chapter-page;
+      }
+      @page :first {
+        counter-reset: chapter-page 3;
+      }
+      p {
+        widows: 1;
+        orphans: 1;
+        margin: 0;
+        inline-size: 7.5ch;
+        font: 16px / 1 monospace;
+      }
+      .xref::before {
+        content: target-text(attr(href url));
+      }
+    </style>
+  </head>
+  <body>
+    <p>
+      <a class="xref" href="chapter.html#target"></a>
+      <a class="xref" href="chapter.html#target"></a>
+      <a class="xref" href="chapter.html#target"></a>
+      <a class="xref" href="chapter.html#target"></a>
+      <a class="xref" href="chapter.html#target"></a>
+      <a class="xref" href="chapter.html#target"></a>
+      <a class="xref" href="chapter.html#target"></a>
+      <a class="xref" href="chapter.html#target"></a>
+      <a class="xref" href="chapter.html#target"></a>
+      <a class="xref" href="chapter.html#target"></a>
+      <a class="xref" href="chapter.html#target"></a>
+      <a class="xref" href="chapter.html#target"></a>
+      <a class="xref" href="chapter.html#target"></a>
+      <a class="xref" href="chapter.html#target"></a>
+      <a class="xref" href="chapter.html#target"></a>
+      <a class="xref" href="chapter.html#target"></a>
+      <a class="xref" href="chapter.html#target"></a>
+      <a class="xref" href="chapter.html#target"></a>
+      <a class="xref" href="chapter.html#target"></a>
+      <a class="xref" href="chapter.html#target"></a>
+      <a class="xref" href="chapter.html#target"></a>
+      <a class="xref" href="chapter.html#target"></a>
+      <a class="xref" href="chapter.html#target"></a>
+      <a class="xref" href="chapter.html#target"></a>
+      <a class="xref" href="chapter.html#target"></a>
+      <a class="xref" href="chapter.html#target"></a>
+      <a class="xref" href="chapter.html#target"></a>
+      <a class="xref" href="chapter.html#target"></a>
+      <a class="xref" href="chapter.html#target"></a>
+      <a class="xref" href="chapter.html#target"></a>
+    </p>
+  </body>
+</html>
