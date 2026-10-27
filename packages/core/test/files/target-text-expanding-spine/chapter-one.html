@@ -1,0 +1,35 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <title>Chapter one</title>
+    <link rel="stylesheet" href="style.css" />
+  </head>
+  <body>
+    <h1>Chapter one</h1>
+    <p>Title: <a class="chapter-ref" href="chapter-two.html#chapter-two"></a></p>
+    <p class="line">The line above shows the title of chapter two</p>
+    <p class="line">through target-text(attr(href), content).</p>
+    <p class="line">Until chapter two is loaded it is empty, one line,</p>
+    <p class="line">and this chapter is two pages long.</p>
+    <p class="line">Once resolved, the long title wraps onto several</p>
+    <p class="line">lines and this chapter becomes three pages long.</p>
+    <p class="line">Each line is 8mm tall; a page holds ten lines.</p>
+    <p class="line">Chapter two must then start on page 5.</p>
+    <p class="line">Page 2 starts before any section heading,</p>
+    <p class="line">so the section counter is 0 at the top of it.</p>
+    <p class="line">The two headings below increment the counter.</p>
+    <h2 id="first-section">First section</h2>
+    <p class="line">Heading numbers come from counter(section).</p>
+    <div class="line"></div>
+    <h2 id="second-section">Second section</h2>
+    <p class="line">The last line references both headings through</p>
+    <p class="line">target-counter(attr(href), section), which must</p>
+    <p class="line">
+      give the heading numbers:
+      <a class="section-ref" href="#first-section"></a>
+      <a class="section-ref" href="#second-section"></a>
+      must read [1.1] [1.2]
+    </p>
+  </body>
+</html>

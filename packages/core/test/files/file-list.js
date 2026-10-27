@@ -617,6 +617,11 @@ module.exports = [
           "target-counter() reflow after a retained source value changes (PR #2132)",
       },
       {
+        file: "target-text-expanding-spine/publication.json",
+        title:
+          "target-text() reflow that expands an earlier WebPub spine before a right-page chapter",
+      },
+      {
         file: "target-text-vs-named-strings.html",
         title: "target-text() vs Named Strings (PR #1575)",
       },

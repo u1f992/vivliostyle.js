@@ -1,0 +1,64 @@
+@page {
+  size: 100mm 100mm;
+  margin: 9mm;
+}
+
+@page :left {
+  @bottom-left {
+    content: "page " counter(page) " (left)";
+    font: 8px sans-serif;
+  }
+}
+
+@page :right {
+  @bottom-right {
+    content: "page " counter(page) " (right)";
+    font: 8px sans-serif;
+  }
+}
+
+html {
+  font: 3.2mm/8mm sans-serif;
+  widows: 1;
+  orphans: 1;
+}
+
+body {
+  margin: 0;
+}
+
+h1,
+h2,
+p {
+  margin: 0;
+  font-size: inherit;
+}
+
+h1 {
+  break-before: right;
+  counter-increment: chapter;
+  counter-reset: section;
+}
+
+h2 {
+  counter-increment: section;
+}
+
+h2::before {
+  content: counter(chapter) "." counter(section) " ";
+}
+
+h2,
+.line {
+  height: 8mm;
+  white-space: nowrap;
+}
+
+.section-ref::before {
+  content: "[" target-counter(attr(href url), chapter) "."
+    target-counter(attr(href url), section) "]";
+}
+
+.chapter-ref::before {
+  content: "[" target-text(attr(href url), content) "]";
+}
