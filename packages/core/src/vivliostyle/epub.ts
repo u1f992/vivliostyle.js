@@ -3170,30 +3170,28 @@ export class OPFView implements Vgen.CustomRendererFactory {
     return Task.handle(
       "renderPage",
       (frame) => {
-        this.renderPageTracked(position).then((result) => {
-          const firstSpine = this.deferredFollowingSpineRelayoutStart;
-          if (
-            !this.renderingAllPages &&
-            !this.relayoutingFollowingSpines &&
-            firstSpine != null &&
-            firstSpine <= position.spineIndex
-          ) {
-            // In on-demand pagination there is no final renderAllPages pass.
+        const finishWith = (result: PageAndPosition | null): void => {
+          this.pageSheetSizeTruncator(this.getRenderedPageSizeCount());
+          endRendering();
+          frame.finish(result);
+        };
+        const rebuildInvalidSuffix = (): Task.Result<any> =>
+          this.hasInvalidSuffixAt(position.spineIndex)
+            ? this.rerenderDeferredFollowingSpines(position)
+            : Task.newResult(true);
+        rebuildInvalidSuffix().then(() => {
+          this.renderPageTracked(position).then((result) => {
+            if (!this.hasInvalidSuffixAt(position.spineIndex)) {
+              finishWith(result);
+              return;
+            }
             // Rebuild the invalid suffix only after the current page render
             // has unwound. A changed retained reference can move its source
             // page too, so keep rebuilding the affected suffix until stable.
             this.rerenderDeferredFollowingSpines(position).then(() => {
-              this.renderPageTracked(position).then((requestedResult) => {
-                this.pageSheetSizeTruncator(this.getRenderedPageSizeCount());
-                endRendering();
-                frame.finish(requestedResult);
-              });
+              this.renderPageTracked(position).then(finishWith);
             });
-            return;
-          }
-          this.pageSheetSizeTruncator(this.getRenderedPageSizeCount());
-          endRendering();
-          frame.finish(result);
+          });
         });
       },
       (frame, err) => {
@@ -3201,6 +3199,15 @@ export class OPFView implements Vgen.CustomRendererFactory {
         endRendering();
         frame.task.raise(err, frame.parent);
       },
+    );
+  }
+
+  private hasInvalidSuffixAt(spineIndex: number): boolean {
+    const firstSpine = this.deferredFollowingSpineRelayoutStart;
+    return (
+      !this.relayoutingFollowingSpines &&
+      firstSpine != null &&
+      firstSpine <= spineIndex
     );
   }
 
@@ -3264,6 +3271,12 @@ export class OPFView implements Vgen.CustomRendererFactory {
           this.renderSinglePage(viewItem, pos).then((result) => {
             const page = result.pageAndPosition.page;
             pos = result.nextLayoutPosition;
+            if (this.hasInvalidSuffixAt(viewItem.item.spineIndex)) {
+              resultPage = page;
+              pageIndex = result.pageAndPosition.position.pageIndex;
+              loopFrame.breakLoop();
+              return;
+            }
             if (pos) {
               if (seekOffset >= 0) {
                 // Searching for offset, don't know the page number.

@@ -1462,11 +1462,14 @@ describe("epub", function () {
         view.pageSheetSizeTruncator = jasmine.createSpy(
           "pageSheetSizeTruncator",
         );
-        view.deferredFollowingSpineRelayoutStart = 1;
-        spyOn(view, "renderPageTracked").and.returnValues(
-          adapt_task.newResult(initialResult),
-          adapt_task.newResult(requestedResult),
-        );
+        view.deferredFollowingSpineRelayoutStart = null;
+        spyOn(view, "renderPageTracked").and.callFake(function () {
+          if (view.renderPageTracked.calls.count() === 1) {
+            view.deferredFollowingSpineRelayoutStart = 1;
+            return adapt_task.newResult(initialResult);
+          }
+          return adapt_task.newResult(requestedResult);
+        });
         spyOn(view, "relayoutDeferredFollowingSpines").and.callFake(
           function () {
             view.deferredFollowingSpineRelayoutStart = null;
@@ -1531,8 +1534,7 @@ describe("epub", function () {
           "pageSheetSizeTruncator",
         );
         view.deferredFollowingSpineRelayoutStart = 1;
-        spyOn(view, "renderPageTracked").and.returnValues(
-          adapt_task.newResult(initialResult),
+        spyOn(view, "renderPageTracked").and.returnValue(
           adapt_task.newResult(requestedResult),
         );
         spyOn(view, "relayoutDeferredFollowingSpines").and.callFake(
@@ -1554,7 +1556,7 @@ describe("epub", function () {
             },
             false,
           );
-          expect(view.renderPageTracked.calls.count()).toBe(2);
+          expect(view.renderPageTracked.calls.count()).toBe(1);
           expect(result).toBe(requestedResult);
           expect(
             view.counterStore.updateTargetCounterNodesInPages,
@@ -1567,6 +1569,48 @@ describe("epub", function () {
           expect(view.pageSheetSizeTruncator).toHaveBeenCalledOnceWith(5);
           done();
         });
+        return adapt_task.newResult(true);
+      });
+    });
+
+    it("stops rendering a spine that its own page render has invalidated", function (done) {
+      adapt_task.start(function () {
+        var view = Object.create(adapt_epub.OPFView.prototype);
+        var firstPage = { id: "first", spineIndex: 1, offset: 0 };
+        var viewItem = {
+          item: { spineIndex: 1 },
+          pages: [],
+          layoutPositions: [null],
+          complete: false,
+        };
+        view.deferredFollowingSpineRelayoutStart = null;
+        view.relayoutingFollowingSpines = false;
+        spyOn(view, "getPageViewItem").and.returnValue(
+          adapt_task.newResult(viewItem),
+        );
+        spyOn(view, "renderSinglePage").and.callFake(function () {
+          viewItem.pages.push(firstPage);
+          viewItem.layoutPositions.push({ page: 1 });
+          view.deferredFollowingSpineRelayoutStart = 1;
+          return adapt_task.newResult({
+            pageAndPosition: adapt_epub.makePageAndPosition(firstPage, 0),
+            nextLayoutPosition: { page: 1 },
+          });
+        });
+
+        view
+          .renderPageTracked({
+            spineIndex: 1,
+            pageIndex: Number.POSITIVE_INFINITY,
+            offsetInItem: -1,
+          })
+          .then(function (result) {
+            expect(view.renderSinglePage.calls.count()).toBe(1);
+            expect(result.page).toBe(firstPage);
+            expect(result.position.pageIndex).toBe(0);
+            expect(viewItem.complete).toBe(false);
+            done();
+          });
         return adapt_task.newResult(true);
       });
     });
