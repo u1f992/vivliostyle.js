@@ -337,31 +337,6 @@ class CounterResolver implements CssCascade.CounterResolver {
   }
 
   /**
-   * Adjust element counter values for cross-scope page-controlled counters.
-   * The page counter operates at the outermost scope, so only the first
-   * (outermost) counter value is adjusted. Returns the adjusted array.
-   */
-  private adjustCountersForCrossScope(
-    name: string,
-    elementCounters: number[],
-    pageCounters: CssCascade.CounterValues | null,
-    docStartCounters: CssCascade.CounterValues | null,
-  ): number[] {
-    if (!this.counterStore.isPageControlledCounter(name) || !pageCounters) {
-      return elementCounters;
-    }
-    const pageVals = pageCounters[name] || [];
-    const pageVal = pageVals.length ? pageVals.at(-1) : 0;
-    const docStartVals = docStartCounters?.[name] || [];
-    const docStartVal = docStartVals.length ? docStartVals[0] : 0;
-    if (!elementCounters.length) {
-      return [pageVal];
-    }
-    const adjustedFirst = pageVal + (elementCounters[0] - docStartVal);
-    return [adjustedFirst, ...elementCounters.slice(1)];
-  }
-
-  /**
    * Returns page-based text content for an element with the specified ID.
    * Returns null if the element has not been laid out yet.
    * @param transformedId ID transformed by DocumentURLTransformer to handle a
@@ -429,7 +404,7 @@ class CounterResolver implements CssCascade.CounterResolver {
             const pageCounters = this.getTargetPageCounters(transformedId);
             const docStartCounters =
               this.getTargetPageDocCounters(transformedId);
-            const adjusted = this.adjustCountersForCrossScope(
+            const adjusted = this.counterStore.adjustCountersForCrossScope(
               name,
               countersOfName,
               pageCounters,
@@ -508,7 +483,7 @@ class CounterResolver implements CssCascade.CounterResolver {
           const elementCountersOfName = elementCounters?.[name] || [];
           // Apply cross-scope adjustment for page-controlled counters
           const docStartCounters = this.getTargetPageDocCounters(transformedId);
-          const adjusted = this.adjustCountersForCrossScope(
+          const adjusted = this.counterStore.adjustCountersForCrossScope(
             name,
             elementCountersOfName,
             pageCounters,
@@ -656,9 +631,7 @@ class CounterResolver implements CssCascade.CounterResolver {
    * `counter(page)` (and any page-controlled counter other than `pages`) is
    * resolved against the page that actually contains the assignment element
    * (snapshot semantics, looked up by its element offset), but kept as a
-   * patchable expression node so cross-spine repagination
-   * (`adjustPageCountersOfLaterSpines` + `updatePageCounterNodesInPages`) can
-   * update the rendered page number. `counter(pages)` is likewise kept as a
+   * patchable expression node. `counter(pages)` is likewise kept as a
    * patchable expression filled with the final page count later.
    */
   private resolveDeferredContentList(val: Css.Val, offset: number): Css.Val {
@@ -908,12 +881,6 @@ export class CounterStore {
   } = Object.create(null);
   currentPageCounters: CssCascade.CounterValues = Object.create(null);
   previousPageCounters: CssCascade.CounterValues = Object.create(null);
-  // Finished-page values include @page counter resets, sets, and increments.
-  // Keep them independently of IDs so every page can be patched after a shift.
-  private pageCountersByPage = new WeakMap<
-    Vtree.Page,
-    CssCascade.CounterValues
-  >();
   // Issue #1999: remember the page-counter base from before a page-local
   // override so later pages can resume the inherited sequence.
   pageCountersBeforeOverride: CssCascade.CounterValues = Object.create(null);
@@ -1044,6 +1011,55 @@ export class CounterStore {
 
   isPageControlledCounter(name: string): boolean {
     return !!this.pageControlledCounterNames[name];
+  }
+
+  /**
+   * Adjust element counter values for cross-scope page-controlled counters.
+   * The page counter operates at the outermost scope, so only the first
+   * (outermost) counter value is adjusted. Returns the adjusted array.
+   */
+  adjustCountersForCrossScope(
+    name: string,
+    elementCounters: number[],
+    pageCounters: CssCascade.CounterValues | null,
+    docStartCounters: CssCascade.CounterValues | null,
+  ): number[] {
+    if (!this.isPageControlledCounter(name) || !pageCounters) {
+      return elementCounters;
+    }
+    const pageVals = pageCounters[name] || [];
+    const pageVal = pageVals.length ? pageVals.at(-1) : 0;
+    const docStartVals = docStartCounters?.[name] || [];
+    const docStartVal = docStartVals.length ? docStartVals[0] : 0;
+    if (!elementCounters.length) {
+      return [pageVal];
+    }
+    const adjustedFirst = pageVal + (elementCounters[0] - docStartVal);
+    return [adjustedFirst, ...elementCounters.slice(1)];
+  }
+
+  /**
+   * Returns the value that target-counter() of the given counter name
+   * resolves to for the element with the given transformed ID, or null when
+   * the value is not known yet because the element has neither been styled
+   * with that counter nor laid out.
+   */
+  getTargetCounterValue(transformedId: string, name: string): number | null {
+    const elementCounters = this.countersById[transformedId]?.[name];
+    const pageCounters = this.pageCountersById[transformedId] || null;
+    if (elementCounters) {
+      const adjusted = this.adjustCountersForCrossScope(
+        name,
+        elementCounters,
+        pageCounters,
+        this.pageDocCountersById[transformedId] || null,
+      );
+      return adjusted.at(-1) ?? 0;
+    }
+    if (!pageCounters) {
+      return null;
+    }
+    return pageCounters[name]?.at(-1) ?? 0;
   }
 
   private definePageCounter(counterName: string, value: number) {
@@ -1334,10 +1350,6 @@ export class CounterStore {
    * @param pageIndex Index of the currently laid out page in its spine item
    */
   finishPage(spineIndex: number, pageIndex: number) {
-    this.pageCountersByPage.set(
-      this.currentPage,
-      cloneCounterValues(this.currentPageCounters),
-    );
     const ids = Object.keys(this.currentPage.elementsById).filter(
       (id) => this.currentPage.getReferenceTargets(id).length > 0,
     );
@@ -1467,9 +1479,7 @@ export class CounterStore {
    * resolved against the page that contains the assignment element (Issue
    * #1997). Re-finishing a page (relayout) overwrites the previous snapshot.
    * The snapshots are kept per spine index, since element offsets are numbered
-   * per source document (Issue #2232), and so they can be shifted together
-   * with pageCountersById when a preceding spine's page count changes (see
-   * adjustPageCountersOfLaterSpines).
+   * per source document (Issue #2232).
    */
   private recordNamedStringPageSnapshot(spineIndex: number) {
     const page = this.currentPage;
@@ -1538,49 +1548,6 @@ export class CounterStore {
   }
 
   /**
-   * Adjust page counter snapshots for elements in spines after the specified
-   * spine. Called when a preceding spine's page count changes (e.g. TOC
-   * expands after target-text resolution), shifting all subsequent pages.
-   */
-  adjustPageCountersOfLaterSpines(
-    expandedSpineIndex: number,
-    pageDelta: number,
-  ): void {
-    if (pageDelta <= 0) return;
-    // Multiple IDs on the same page share the same counter object reference
-    // (assigned in finishPage). Use a Set to avoid adjusting the same object
-    // multiple times.
-    const adjusted = new Set<CssCascade.CounterValues>();
-    for (const id of Object.keys(this.pageIndicesById)) {
-      const idx = this.pageIndicesById[id];
-      if (idx.spineIndex > expandedSpineIndex) {
-        const counters = this.pageCountersById[id];
-        if (counters && counters["page"] && !adjusted.has(counters)) {
-          adjusted.add(counters);
-          counters["page"] = counters["page"].map((v) => v + pageDelta);
-        }
-      }
-    }
-    // Issue #1997: keep named-string page snapshots (used to freeze
-    // counter(page) for deferred named strings) in sync with the shifted page
-    // numbers so running headers assigned in later spines stay correct.
-    for (const key of Object.keys(this.namedStringPageSnapshots)) {
-      const spineIndex = parseInt(key, 10);
-      if (spineIndex <= expandedSpineIndex) continue;
-      const snapshots = this.namedStringPageSnapshots[spineIndex];
-      for (const startKey of Object.keys(snapshots)) {
-        const snap = snapshots[parseInt(startKey, 10)];
-        if (snap.counters["page"] && !adjusted.has(snap.counters)) {
-          adjusted.add(snap.counters);
-          snap.counters["page"] = snap.counters["page"].map(
-            (v) => v + pageDelta,
-          );
-        }
-      }
-    }
-  }
-
-  /**
    * Drop references whose source page belongs to spine items that are about to
    * be rebuilt, and invalidate target snapshots owned by that suffix. Retain
    * pageIndicesById so unresolved forward references can still locate and
@@ -1643,14 +1610,13 @@ export class CounterStore {
         if (!expr || !expr.transformedId) {
           return null;
         }
-        const arr: number[] | undefined =
-          this.pageCountersById[expr.transformedId]?.[expr.name];
-        if (!arr) {
+        const value = this.getTargetCounterValue(expr.transformedId, expr.name);
+        if (value === null) {
           return null;
         }
         return {
           id: expr.transformedId,
-          value: expr.format(arr.at(-1)),
+          value: expr.format(value),
         };
       },
       changedTargetIds,
@@ -1714,100 +1680,6 @@ export class CounterStore {
       }
     }
     return changedPages;
-  }
-
-  /**
-   * Resolve page-level counter values for a page.
-   *
-   * Prefer the finished page's own post-increment snapshot. For pages without
-   * one, use a canonical target's snapshot or the supplied starting counters.
-   */
-  private getPageCountersForPage(
-    page: Vtree.Page,
-    explicitCounters?: CssCascade.CounterValues | null,
-  ): CssCascade.CounterValues | null {
-    const pageCounters = this.pageCountersByPage.get(page);
-    if (pageCounters) {
-      return pageCounters;
-    }
-    const elementIds = Object.keys(page.elementsById);
-    for (const elementId of elementIds) {
-      if (!page.getReferenceTargets(elementId).length) continue;
-      const counters = this.pageCountersById[elementId];
-      if (counters) {
-        return counters;
-      }
-    }
-    // Fall back to explicit per-page counters (e.g. pageCounterStarts)
-    if (explicitCounters) {
-      return explicitCounters;
-    }
-    return null;
-  }
-
-  /**
-   * Walk through page-counter DOM nodes in the given page containers and
-   * update their text content from their finished-page counter snapshots.
-   * Called after adjustPageCountersOfLaterSpines has shifted target snapshots.
-   *
-   * Pass the page-count change to shift the finished-page snapshots, and pass
-   * page-start counters as a fallback for pages without a finished snapshot.
-   */
-  updatePageCounterNodesInPages(
-    pages: Vtree.Page[],
-    pageCountersByPage?: Array<CssCascade.CounterValues | null>,
-    pageDelta = 0,
-  ): void {
-    for (let i = 0; i < pages.length; i++) {
-      const page = pages[i];
-      if (!page?.container) continue;
-
-      const pageCounters = this.pageCountersByPage.get(page);
-      if (pageDelta && pageCounters?.["page"]) {
-        pageCounters["page"] = pageCounters["page"].map((v) => v + pageDelta);
-      }
-
-      // Issue #1997: patch counter(page) nodes inside named strings from the
-      // assignment-page snapshot (which adjustPageCountersOfLaterSpines has
-      // already shifted), independent of this page's own page counters.
-      const nsNodes = page.container.querySelectorAll(
-        `[${NAMED_STRING_PAGE_COUNTER_ATTR}]`,
-      );
-      for (const node of nsNodes) {
-        const key = node.getAttribute(NAMED_STRING_PAGE_COUNTER_ATTR);
-        const entry = this.namedStringPageCounterExprMap[key];
-        if (!entry) continue;
-        const counters = this.getPageCountersForOffset(
-          entry.spineIndex,
-          entry.offset,
-        );
-        const values = counters?.[entry.counterName];
-        if (values) {
-          node.textContent = entry.format(values);
-        }
-      }
-
-      const counters = this.getPageCountersForPage(
-        page,
-        pageCountersByPage?.[i],
-      );
-      if (!counters) continue;
-
-      const nodes = page.container.querySelectorAll(`[${PAGE_COUNTER_ATTR}]`);
-      for (const node of nodes) {
-        const key = node.getAttribute(PAGE_COUNTER_ATTR);
-        const counterExpr = this.pageCounterExprs.find(
-          (o) => o.expr.key === key,
-        );
-        if (!counterExpr) continue;
-        const str = (counterExpr.expr as Exprs.Native)?.str;
-        const counterName = str?.replace(/^page-counters?-/, "");
-        const counterValues = counters[counterName];
-        if (counterValues) {
-          node.textContent = counterExpr.format(counterValues);
-        }
-      }
-    }
   }
 
   /**
@@ -2096,12 +1968,9 @@ export class CounterStore {
       const key = node.getAttribute(TARGET_COUNTER_ATTR);
       const expr = this.targetCounterExprs.find((o) => o.expr.key === key);
       if (expr && expr.transformedId) {
-        const counterValue = this.pageCountersById[expr.transformedId];
-        if (counterValue) {
-          const arr: number[] = counterValue[expr.name];
-          if (arr) {
-            node.textContent = expr.format(arr.at(-1));
-          }
+        const value = this.getTargetCounterValue(expr.transformedId, expr.name);
+        if (value !== null) {
+          node.textContent = expr.format(value);
         }
       }
     }

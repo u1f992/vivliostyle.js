@@ -2388,61 +2388,16 @@ export class OPFView implements Vgen.CustomRendererFactory {
                   if (isCrossSpine) {
                     this.markSpineItemCompleteIfReady(targetViewItem);
                   }
-                  // After the pending page expanded the target spine,
-                  // pageCountersById snapshots for elements in later spines
-                  // are stale (page counter is off by the added pages).
-                  // Adjust those snapshots, shift the saved source-spine
-                  // counter state so subsequent pages start from the
-                  // corrected offset, and patch already-rendered
-                  // target-counter DOM nodes in the expanded spine's pages.
                   const pageDelta =
                     targetViewItem.pages.length - pageCountBeforePending;
                   if (isCrossSpine && pageDelta > 0) {
-                    this.counterStore.adjustPageCountersOfLaterSpines(
+                    this.deferFollowingSpinesForRelayout(
                       targetViewItem.item.spineIndex,
-                      pageDelta,
-                    );
-                    this.counterStore.updateTargetCounterNodesInPages(
-                      targetViewItem.pages,
                     );
                     this.updateEPageRangesAfterPageCountChange(
                       targetViewItem,
                       targetViewItem.pages.length,
                     );
-                    // Adjust pageCounterStarts and page-counter DOM nodes
-                    // for all already-rendered later-spine viewItems so
-                    // their counter(page) margins show the corrected value
-                    // and future re-renders start from the right offset.
-                    const expandedIdx = targetViewItem.item.spineIndex;
-                    for (
-                      let si = expandedIdx + 1;
-                      si < this.spineItems.length;
-                      si++
-                    ) {
-                      const laterItem = this.spineItems[si];
-                      if (!laterItem) continue;
-                      for (const pcs of laterItem.pageCounterStarts) {
-                        if (pcs?.["page"]) {
-                          pcs["page"] = pcs["page"].map((v) => v + pageDelta);
-                        }
-                      }
-                      this.counterStore.updatePageCounterNodesInPages(
-                        laterItem.pages,
-                        laterItem.pageCounterStarts,
-                        pageDelta,
-                      );
-                    }
-                    // Shift the saved source-spine counter state so that
-                    // when it is restored below, subsequent pages of the
-                    // source spine continue with the corrected page offset.
-                    if (savedCountersBeforePending) {
-                      const srcPage = savedCountersBeforePending["page"];
-                      if (srcPage) {
-                        savedCountersBeforePending["page"] = srcPage.map(
-                          (v) => v + pageDelta,
-                        );
-                      }
-                    }
                   }
                   if (savedCountersBeforePending) {
                     this.counterStore.currentPageCounters =

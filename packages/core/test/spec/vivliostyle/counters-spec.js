@@ -39,97 +39,113 @@ function createNodeContext(id) {
   return nodeContext;
 }
 
-describe("cross-reference layout constraint", function () {
-  it("updates page counters from each page's own post-increment snapshot", function () {
-    const store = new Counters.CounterStore(documentURLTransformer);
-    const expr = { key: "page-key", str: "page-counter-page" };
-    store.pageCounterExprs = [
-      { expr, format: (values) => String(values.at(-1)) },
-    ];
-
-    function finishPage(pageIndex, pageNumber, ids) {
-      const container = document.createElement("div");
-      const counterNode = document.createElement("span");
-      counterNode.setAttribute(Counters.PAGE_COUNTER_ATTR, expr.key);
-      container.appendChild(counterNode);
-      const page = new Vtree.Page(container, container);
-      for (const [id, isTarget] of ids) {
-        page.registerElementWithId(document.createElement("div"), id, isTarget);
-      }
-      store.setCurrentPage(page);
-      store.currentPageCounters = { page: [pageNumber] };
-      store.finishPage(1, pageIndex);
-      return { page, counterNode };
-    }
-
-    const first = finishPage(0, 10, [["duplicate", true]]);
-    const mixed = finishPage(1, 20, [
-      ["duplicate", false],
-      ["unique", true],
-    ]);
-    const duplicateOnly = finishPage(2, 30, [["duplicate", false]]);
-    const noIds = finishPage(3, 40, []);
-    const pages = [first, mixed, duplicateOnly, noIds];
-    // Page starts do not necessarily differ from the page counter by one:
-    // @page may reset, set, or increment the counter by another amount.
-    const starts = pages.map(() => ({ page: [0] }));
-
-    store.adjustPageCountersOfLaterSpines(0, 2);
-    store.updatePageCounterNodesInPages(
-      pages.map(({ page }) => page),
-      starts,
-      2,
-    );
-    expect(pages.map(({ counterNode }) => counterNode.textContent)).toEqual([
-      "12",
-      "22",
-      "32",
-      "42",
-    ]);
-    expect(store.pageCountersById.duplicate.page).toEqual([12]);
-    expect(starts).toEqual(pages.map(() => ({ page: [0] })));
-
-    store.adjustPageCountersOfLaterSpines(0, 1);
-    store.updatePageCounterNodesInPages(
-      pages.map(({ page }) => page),
-      starts,
-      1,
-    );
-    expect(pages.map(({ counterNode }) => counterNode.textContent)).toEqual([
-      "13",
-      "23",
-      "33",
-      "43",
-    ]);
-  });
-
-  it("ignores duplicate IDs when falling back to target snapshots", function () {
+describe("retained target-counter nodes", function () {
+  function createStoreWithNode(testCase) {
     const store = new Counters.CounterStore(documentURLTransformer);
     const container = document.createElement("div");
     const node = document.createElement("span");
-    node.setAttribute(Counters.PAGE_COUNTER_ATTR, "page-key");
+    node.setAttribute(Counters.TARGET_COUNTER_ATTR, "counter-key");
+    node.setAttribute(Counters.TARGET_COUNTER_IN_RUNNING_ATTR, "true");
+    node.textContent = "stale";
     container.appendChild(node);
-    const page = new Vtree.Page(container, container);
-    const duplicate = document.createElement("div");
-    const unique = document.createElement("div");
-    page.registerElementWithId(duplicate, "duplicate", false);
-    page.registerElementWithId(unique, "unique", true);
-    store.pageCountersById.duplicate = { page: [2] };
-    store.pageCountersById.unique = { page: [3] };
-    store.pageCounterExprs = [
-      {
-        expr: { key: "page-key", str: "page-counter-page" },
-        format: (values) => String(values.at(-1)),
-      },
-    ];
+    store.registerTargetCounterExpr(
+      testCase.name,
+      String,
+      { key: "counter-key" },
+      "target",
+    );
+    if (testCase.element) {
+      store.countersById.target = { [testCase.name]: testCase.element };
+    }
+    if (testCase.page) {
+      store.pageCountersById.target = { [testCase.name]: testCase.page };
+    }
+    if (testCase.start) {
+      store.pageDocCountersById.target = { [testCase.name]: testCase.start };
+    }
+    if (testCase.controlled) {
+      store.setPageControlledCounterNames([testCase.name]);
+    }
+    return { store, container, node };
+  }
 
-    store.updatePageCounterNodesInPages([page], [{ page: [4] }]);
-    expect(node.textContent).toBe("3");
-    delete page.elementsById.unique;
-    store.updatePageCounterNodesInPages([page], [{ page: [4] }]);
-    expect(node.textContent).toBe("4");
+  [
+    {
+      title: "an element counter instead of the page-start value",
+      name: "section",
+      element: [2],
+      page: [0],
+      expected: "2",
+    },
+    {
+      title: "a page counter when the element has no counter of that name",
+      name: "page",
+      page: [5],
+      expected: "5",
+    },
+    {
+      title: "an element counter before the target page is finished",
+      name: "section",
+      element: [4],
+      expected: "4",
+    },
+    {
+      title: "a page-controlled counter adjusted across scopes",
+      name: "section",
+      element: [5],
+      page: [10],
+      start: [3],
+      controlled: true,
+      expected: "12",
+    },
+    {
+      title: "the innermost value of a nested page-controlled counter",
+      name: "section",
+      element: [5, 2],
+      page: [10],
+      start: [3],
+      controlled: true,
+      expected: "2",
+    },
+  ].forEach(function (testCase) {
+    it(`refreshes target-counter() with ${testCase.title}`, function () {
+      const { store, container, node } = createStoreWithNode(testCase);
+      const page = new Vtree.Page(container, container);
+
+      const changedTargetIds = new Set();
+      const changedPages = store.updateTargetCounterNodesInPages(
+        [page],
+        changedTargetIds,
+      );
+
+      expect(node.textContent).toBe(testCase.expected);
+      expect(changedPages).toEqual(new Set([page]));
+      expect(changedTargetIds).toEqual(new Set(["target"]));
+      expect(store.updateTargetCounterNodesInPages([page])).toEqual(new Set());
+
+      node.textContent = "stale";
+      store.finishLastPage({ root: container, contentContainer: container });
+      expect(node.textContent).toBe(testCase.expected);
+    });
   });
 
+  it("leaves target-counter() alone while the target is unknown", function () {
+    const { store, container, node } = createStoreWithNode({
+      name: "section",
+    });
+    const page = new Vtree.Page(container, container);
+
+    const changedTargetIds = new Set();
+    expect(
+      store.updateTargetCounterNodesInPages([page], changedTargetIds),
+    ).toEqual(new Set());
+    expect(changedTargetIds).toEqual(new Set());
+    store.finishLastPage({ root: container, contentContainer: container });
+    expect(node.textContent).toBe("stale");
+  });
+});
+
+describe("cross-reference layout constraint", function () {
   it("tracks duplicate status separately for each fragment on an element", function () {
     const container = document.createElement("div");
     const page = new Vtree.Page(container, container);
