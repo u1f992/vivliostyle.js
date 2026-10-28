@@ -1290,6 +1290,9 @@ describe("epub", function () {
             target1: { spineIndex: 1, pageIndex: 0 },
             target2: { spineIndex: 1, pageIndex: 0 },
           },
+          isTargetPageStale: function () {
+            return false;
+          },
         };
         spyOn(view, "deferReferencesForPage");
         spyOn(

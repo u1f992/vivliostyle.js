@@ -929,6 +929,7 @@ export class CounterStore {
     Map<number, Set<string>>
   >();
   private targetsMovedEarlierAfterPageBreak = new Set<string>();
+  private staleTargetIds = new Set<string>();
   pageControlledCounterNames: { [key: string]: boolean } = Object.assign(
     Object.create(null),
     { page: true },
@@ -1381,6 +1382,7 @@ export class CounterStore {
           this.unresolveReferences(id);
         }
         this.pageIndicesById[id] = { spineIndex, pageIndex };
+        this.staleTargetIds.delete(id);
       });
     }
     this.discardReferencesFromPage(spineIndex, pageIndex);
@@ -1551,7 +1553,9 @@ export class CounterStore {
    * Drop references whose source page belongs to spine items that are about to
    * be rebuilt, and invalidate target snapshots owned by that suffix. Retain
    * pageIndicesById so unresolved forward references can still locate and
-   * render their targets while the suffix is reconstructed.
+   * render their targets while the suffix is reconstructed, but mark those
+   * entries stale so that they neither constrain the rebuilt layout nor stand
+   * for a page of it until the target has been laid out again.
    */
   discardReferencesFromSpine(firstSpineIndex: number): void {
     const targetIds = new Set([
@@ -1567,6 +1571,7 @@ export class CounterStore {
 
     for (const id of Object.keys(this.pageIndicesById)) {
       if (this.pageIndicesById[id].spineIndex >= firstSpineIndex) {
+        this.staleTargetIds.add(id);
         delete this.pageCountersById[id];
         delete this.pageDocCountersById[id];
         delete this.pageTextById[id];
@@ -1995,9 +2000,22 @@ export class CounterStore {
     return new LayoutConstraint(this, pageIndex);
   }
 
+  /**
+   * Returns whether the page recorded for the element with the given
+   * transformed ID belongs to a layout that has been discarded for a rebuild
+   * and has not been laid out again since.
+   */
+  isTargetPageStale(id: string): boolean {
+    return this.staleTargetIds.has(id);
+  }
+
   moveTargetEarlierAfterPageBreak(id: string, pageIndex: number): boolean {
     const oldPageIndex = this.pageIndicesById[id];
-    if (!oldPageIndex || pageIndex >= oldPageIndex.pageIndex) {
+    if (
+      !oldPageIndex ||
+      this.staleTargetIds.has(id) ||
+      pageIndex >= oldPageIndex.pageIndex
+    ) {
       return true;
     }
     // Keep the anti-oscillation guarantee introduced by b0288a35: a target
@@ -2076,7 +2094,7 @@ class LayoutConstraint implements Layout.LayoutConstraint {
       return true;
     }
     const pageIndex = this.counterStore.pageIndicesById[id];
-    if (!pageIndex) {
+    if (!pageIndex || this.counterStore.isTargetPageStale(id)) {
       return true;
     }
     return this.pageIndex >= pageIndex.pageIndex;

@@ -617,6 +617,11 @@ module.exports = [
           "target-counter() reflow after a retained source value changes (PR #2132)",
       },
       {
+        file: "target-counter-after-shrinking-spine/publication.json",
+        title:
+          "target-counter() targets in a WebPub spine rebuilt after an earlier spine shrinks",
+      },
+      {
         file: "target-text-expanding-spine/publication.json",
         title:
           "target-text() reflow that expands an earlier WebPub spine before a right-page chapter",

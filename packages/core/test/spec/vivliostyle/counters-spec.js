@@ -223,6 +223,37 @@ describe("cross-reference layout constraint", function () {
     expect(store.updateTargetTextNodesInPages([page])).toEqual(new Set());
   });
 
+  it("ignores the page recorded for a target in a discarded spine suffix", function () {
+    const store = new Counters.CounterStore(documentURLTransformer);
+    const reference = new Counters.TargetCounterReference("target", true);
+    reference.spineIndex = 0;
+    store.resolvedReferences.target = [reference];
+    store.pageIndicesById.target = { spineIndex: 2, pageIndex: 1 };
+    const nodeContext = createNodeContext("target");
+    const constraint = store.createLayoutConstraint(0);
+
+    expect(constraint.allowLayout(nodeContext)).toBe(false);
+
+    store.discardReferencesFromSpine(2);
+
+    expect(store.isTargetPageStale("target")).toBe(true);
+    expect(constraint.allowLayout(nodeContext)).toBe(true);
+    expect(constraint.allowLayoutAfterPageBreak(nodeContext)).toBe(true);
+    expect(store.pageIndicesById.target).toEqual({
+      spineIndex: 2,
+      pageIndex: 1,
+    });
+
+    const container = document.createElement("div");
+    const page = new Vtree.Page(container, container);
+    page.registerElementWithId(nodeContext.viewNode, "target");
+    store.setCurrentPage(page);
+    store.finishPage(2, 1);
+
+    expect(store.isTargetPageStale("target")).toBe(false);
+    expect(constraint.allowLayout(nodeContext)).toBe(false);
+  });
+
   it("allows a target to move earlier after a satisfied page break", function () {
     const store = new Counters.CounterStore(documentURLTransformer);
     const reference = new Counters.TargetCounterReference("target", true);

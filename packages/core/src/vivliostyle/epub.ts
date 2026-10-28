@@ -2728,7 +2728,7 @@ export class OPFView implements Vgen.CustomRendererFactory {
     >();
     for (const id of targetIds) {
       const position = this.counterStore.pageIndicesById[id];
-      if (!position) continue;
+      if (!position || this.counterStore.isTargetPageStale(id)) continue;
       const viewItem = this.spineItems[position.spineIndex];
       const page = viewItem?.pages[position.pageIndex];
       if (!viewItem || !page) continue;
